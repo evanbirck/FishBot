@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { SummaryViewer } from "@/components/reports/SummaryViewer";
 import { formatDateTime } from "@/lib/formatters";
 import { getReportByVideoId } from "@/lib/supabase/queries";
-import { ignoreVideoAction, summarizeVideoAction, summarizeWithManualTranscriptAction } from "./actions";
+import { emailReportAction, ignoreVideoAction, summarizeVideoAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +16,7 @@ type ReportDetailPageProps = {
   }>;
   searchParams: Promise<{
     summary?: string;
+    email?: string;
     message?: string;
   }>;
 };
@@ -46,14 +47,16 @@ export default async function ReportDetailPage({ params, searchParams }: ReportD
         <div className="notice">Transcript still was not available, so FishBot kept the fallback placeholder.</div>
       ) : null}
       {notice.summary === "failed" ? <div className="notice">Summary failed: {notice.message ?? "OpenAI or transcript processing returned an error."}</div> : null}
+      {notice.email === "sent" ? <div className="notice">Report email sent.</div> : null}
+      {notice.email === "skipped" ? <div className="notice">Email is disabled. Set ENABLE_EMAIL=true and redeploy.</div> : null}
+      {notice.email === "failed" ? <div className="notice">Report email failed: {notice.message ?? "Gmail SMTP returned an error."}</div> : null}
 
       <section className="detail-grid">
         <Card title="Summary" action={<Badge tone={statusTone(report.transcript_status)}>{report.transcript_status}</Badge>}>
           {report.summary ? <SummaryViewer summary={report.summary.summary_json_typed} /> : <p className="muted">Summary pending.</p>}
           {report.transcript_status === "placeholder" ? (
             <p className="muted">
-              This is a fallback summary because automated caption download did not return usable transcript text. Paste the
-              YouTube transcript below to generate the real report.
+              This is a fallback summary because automated caption download did not return usable transcript text.
             </p>
           ) : null}
         </Card>
@@ -67,6 +70,11 @@ export default async function ReportDetailPage({ params, searchParams }: ReportD
             <form action={ignoreVideoAction.bind(null, report.youtube_video_id)}>
               <button className="button button-secondary" type="submit">
                 Ignore this video
+              </button>
+            </form>
+            <form action={emailReportAction.bind(null, report.youtube_video_id)}>
+              <button className="button button-secondary" type="submit" disabled={isPlaceholderSummary || !report.summary}>
+                Email this report
               </button>
             </form>
           </div>
@@ -89,24 +97,7 @@ export default async function ReportDetailPage({ params, searchParams }: ReportD
             </div>
           </dl>
         </Card>
-        <Card title="Paste Transcript">
-          <form action={summarizeWithManualTranscriptAction.bind(null, report.youtube_video_id)} className="form-grid">
-            <label>
-              Transcript text
-              <textarea
-                name="transcript"
-                placeholder="Paste the YouTube transcript here, then summarize."
-                required
-                rows={10}
-              />
-            </label>
-            <button className="button button-primary" type="submit">
-              Summarize pasted transcript
-            </button>
-          </form>
-          <p className="muted">Use this when YouTube shows a transcript in the browser but blocks automated caption download.</p>
-        </Card>
-        <Card title="Email Digest Text">
+        <Card title="Email Preview">
           <pre className="digest-preview">{report.summary?.digest_text ?? "Email digest has not been rendered yet."}</pre>
         </Card>
       </section>

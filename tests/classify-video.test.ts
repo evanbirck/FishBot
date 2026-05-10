@@ -13,7 +13,7 @@ describe("classifyVideoForReport", () => {
     expect(result.recommendedAction).toBe("auto_summarize");
   });
 
-  it("does not auto-summarize gear, tournament, or announcement videos", () => {
+  it("does not auto-summarize gear or announcement videos", () => {
     const gear = classifyVideoForReportDeterministic({
       title: "Delta gear update and tournament announcement",
       description: "New rod setup, sale details, and tournament recap."
@@ -21,6 +21,17 @@ describe("classifyVideoForReport", () => {
 
     expect(gear.recommendedAction).not.toBe("auto_summarize");
     expect(gear.isWeeklyReport).toBe(false);
+  });
+
+  it("does not subtract points for tournament-related uploads", () => {
+    const result = classifyVideoForReportDeterministic({
+      title: "Ostranders BAM Delta Pro/Am Strategy",
+      description: "California Delta tournament strategy and fishing conditions."
+    });
+
+    expect(result.score).toBeGreaterThan(0);
+    expect(result.reason).toContain("+8 tournament");
+    expect(result.recommendedAction).toBe("ask_user");
   });
 
   it("includes unclear Delta-related uploads as optional summary requests", () => {

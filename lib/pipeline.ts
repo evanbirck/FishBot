@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { WEEKLY_REPORT_JOB_NAME } from "@/lib/constants";
 import { estimateOpenAiCostUsd, roundMoney } from "@/lib/costing";
-import { formatWeeklyEmailDigest } from "@/lib/email/format-digest";
+import { formatRequestedVideoEmail, formatWeeklyEmailDigest } from "@/lib/email/format-digest";
 import { sendEmail } from "@/lib/email";
 import { getServerEnv } from "@/lib/env";
 import { getErrorMessage } from "@/lib/errors";
@@ -9,7 +9,7 @@ import { shouldSkipRun, weeklyRunKey } from "@/lib/idempotency";
 import { logger } from "@/lib/logger";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Json, Tables } from "@/lib/supabase/types";
-import { createPlaceholderSummary, getPromptVersion, reportSummarySchema, summarizeReportWithUsage } from "@/lib/summarize";
+import { createPlaceholderSummary, getPromptVersion, reportSummarySchema, summarizeReportWithUsage, type ReportSummary } from "@/lib/summarize";
 import { fetchTranscript } from "@/lib/transcript";
 import { discoverAndClassifyRecentUploads, type YouTubeVideoCandidate } from "@/lib/youtube";
 import type { VideoClassification } from "@/lib/youtube/classify-video";
@@ -301,12 +301,15 @@ export async function createSummaryForVideo(video: Tables<"videos">, env: Return
       : {};
 
   const summaryInsert = {
+    ...buildSummaryStorageFields({
+      summary: summaryResult.summary,
+      videoUrl: video.video_url,
+      title: video.title
+    }),
     video_id: video.id,
     model: transcript.status === "found" ? env.OPENAI_SUMMARY_MODEL : "placeholder",
     prompt_version: getPromptVersion(),
     summary_json: summaryResult.summary as unknown as Json,
-    digest_text: "",
-    char_count: 0,
     input_tokens: summaryResult.usage?.inputTokens ?? null,
     output_tokens: summaryResult.usage?.outputTokens ?? null,
     total_tokens: summaryResult.usage?.totalTokens ?? null,
@@ -395,12 +398,15 @@ export async function createSummaryForVideoWithManualTranscript(video: Tables<"v
     .from("summaries")
     .upsert(
       {
+        ...buildSummaryStorageFields({
+          summary: summaryResult.summary,
+          videoUrl: video.video_url,
+          title: video.title
+        }),
         video_id: video.id,
         model: env.OPENAI_SUMMARY_MODEL,
         prompt_version: getPromptVersion(),
         summary_json: summaryResult.summary as unknown as Json,
-        digest_text: "",
-        char_count: 0,
         input_tokens: summaryResult.usage?.inputTokens ?? null,
         output_tokens: summaryResult.usage?.outputTokens ?? null,
         total_tokens: summaryResult.usage?.totalTokens ?? null,
@@ -424,6 +430,23 @@ export async function createSummaryForVideoWithManualTranscript(video: Tables<"v
     .eq("id", video.id);
 
   return result.data;
+}
+
+function buildSummaryStorageFields(input: {
+  title: string;
+  summary: ReportSummary;
+  videoUrl: string;
+}) {
+  const digest = formatRequestedVideoEmail({
+    title: input.title,
+    summary: input.summary,
+    videoUrl: input.videoUrl
+  });
+
+  return {
+    digest_text: digest.text,
+    char_count: digest.text.length
+  };
 }
 
 async function sendWeeklyDigestEmail(input: {

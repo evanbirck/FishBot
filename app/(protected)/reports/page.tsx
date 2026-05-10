@@ -1,10 +1,10 @@
 import { ReportList } from "@/components/reports/ReportList";
-import { getDashboardData } from "@/lib/supabase/queries";
+import { getReportsData } from "@/lib/supabase/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
-  const data = await getDashboardData();
+  const data = await getReportsData();
 
   return (
     <div className="page">
@@ -12,7 +12,7 @@ export default async function ReportsPage() {
         <div>
           <p className="eyebrow">History</p>
           <h1>Reports</h1>
-          <p>All detected weekly report videos, transcript states, and generated summaries.</p>
+          <p>Detected videos, transcript states, and generated summaries from the saved history.</p>
         </div>
       </div>
       {data.error ? <div className="notice">{data.error}</div> : null}

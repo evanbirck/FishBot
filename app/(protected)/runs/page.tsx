@@ -1,11 +1,11 @@
 import { Card } from "@/components/ui/Card";
 import { RecentRunsTable } from "@/components/dashboard/RecentRunsTable";
-import { getDashboardData } from "@/lib/supabase/queries";
+import { getRunsData } from "@/lib/supabase/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function RunsPage() {
-  const data = await getDashboardData();
+  const data = await getRunsData();
 
   return (
     <div className="page">
@@ -13,11 +13,11 @@ export default async function RunsPage() {
         <div>
           <p className="eyebrow">Automation</p>
           <h1>Runs</h1>
-          <p>Recent cron and historical testing executions.</p>
+          <p>Cron and historical testing executions from the saved run history.</p>
         </div>
       </div>
       {data.error ? <div className="notice">{data.error}</div> : null}
-      <Card title="Recent Runs">
+      <Card title="Run History">
         <RecentRunsTable runs={data.runs} />
       </Card>
     </div>

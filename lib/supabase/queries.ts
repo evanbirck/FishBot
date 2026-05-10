@@ -25,6 +25,16 @@ export type DashboardData = {
   error: string | null;
 };
 
+export type ReportsData = {
+  reports: ReportWithSummary[];
+  error: string | null;
+};
+
+export type RunsData = {
+  runs: Tables<"job_runs">[];
+  error: string | null;
+};
+
 const EMPTY_DATA: DashboardData = {
   latestReport: null,
   reports: [],
@@ -50,24 +60,16 @@ export async function getDashboardData(): Promise<DashboardData> {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [videosResult, summariesResult, runsResult, emailDeliveriesResult] = await Promise.all([
+    const [videosResult, runsResult, emailDeliveriesResult] = await Promise.all([
       supabase.from("videos").select("*").order("published_at", { ascending: false }).limit(12),
-      supabase.from("summaries").select("*").order("created_at", { ascending: false }).limit(12),
       supabase.from("job_runs").select("*").order("started_at", { ascending: false }).limit(8),
       supabase.from("email_deliveries").select("*").order("created_at", { ascending: false }).limit(12)
     ]);
 
-    const error = [videosResult.error, summariesResult.error, runsResult.error].find(Boolean);
+    const error = [videosResult.error, runsResult.error].find(Boolean);
     if (error) throw error;
 
-    const summariesByVideoId = new Map(
-      (summariesResult.data ?? []).map((summary) => [summary.video_id, withTypedSummary(summary)])
-    );
-
-    const reports = (videosResult.data ?? []).map((video) => ({
-      ...video,
-      summary: summariesByVideoId.get(video.id) ?? null
-    }));
+    const reports = await attachSummaries(videosResult.data ?? []);
 
     const latestReport = reports.find((report) => report.classification === "weekly_report") ?? reports[0] ?? null;
     const lastRunStatus = runsResult.data?.[0]?.status ?? "not run";
@@ -93,6 +95,56 @@ export async function getDashboardData(): Promise<DashboardData> {
     return {
       ...EMPTY_DATA,
       error: error instanceof Error ? error.message : "Could not load dashboard data."
+    };
+  }
+}
+
+export async function getReportsData(limit = 500): Promise<ReportsData> {
+  if (!inspectEnvReadiness().serverReady) {
+    return {
+      reports: [],
+      error: "Server environment is not fully configured yet. Add Supabase, API, Gmail SMTP, and cron secrets to load live data."
+    };
+  }
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const videosResult = await supabase.from("videos").select("*").order("published_at", { ascending: false }).limit(limit);
+    if (videosResult.error) throw videosResult.error;
+
+    return {
+      reports: await attachSummaries(videosResult.data ?? []),
+      error: null
+    };
+  } catch (error) {
+    return {
+      reports: [],
+      error: error instanceof Error ? error.message : "Could not load report history."
+    };
+  }
+}
+
+export async function getRunsData(limit = 100): Promise<RunsData> {
+  if (!inspectEnvReadiness().serverReady) {
+    return {
+      runs: [],
+      error: "Server environment is not fully configured yet. Add Supabase, API, Gmail SMTP, and cron secrets to load run history."
+    };
+  }
+
+  try {
+    const supabase = getSupabaseAdmin();
+    const runsResult = await supabase.from("job_runs").select("*").order("started_at", { ascending: false }).limit(limit);
+    if (runsResult.error) throw runsResult.error;
+
+    return {
+      runs: runsResult.data ?? [],
+      error: null
+    };
+  } catch (error) {
+    return {
+      runs: [],
+      error: error instanceof Error ? error.message : "Could not load run history."
     };
   }
 }
@@ -157,6 +209,24 @@ function maskEmail(value?: string): string {
   const [name, domain] = value.split("@");
   if (!name || !domain) return "Configured";
   return `${name.slice(0, 2)}***@${domain}`;
+}
+
+async function attachSummaries(videos: Tables<"videos">[]): Promise<ReportWithSummary[]> {
+  if (!videos.length) return [];
+
+  const supabase = getSupabaseAdmin();
+  const videoIds = videos.map((video) => video.id);
+  const summariesResult = await supabase.from("summaries").select("*").in("video_id", videoIds);
+  if (summariesResult.error) throw summariesResult.error;
+
+  const summariesByVideoId = new Map(
+    (summariesResult.data ?? []).map((summary) => [summary.video_id, withTypedSummary(summary)])
+  );
+
+  return videos.map((video) => ({
+    ...video,
+    summary: summariesByVideoId.get(video.id) ?? null
+  }));
 }
 
 function withTypedSummary(summary: Tables<"summaries">) {

@@ -2,7 +2,7 @@ import { TestTube2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { inspectEnvReadiness } from "@/lib/env";
-import { repairPlaceholderSummariesAction, runHistoricalBackfillAction, sendTestEmailAction } from "./actions";
+import { emailSelectedWeekAction, repairPlaceholderSummariesAction, runHistoricalBackfillAction, sendTestEmailAction } from "./actions";
 
 type TestingPageProps = {
   searchParams: Promise<{
@@ -19,6 +19,9 @@ type TestingPageProps = {
     repaired?: string;
     placeholder?: string;
     failed?: string;
+    weekEmail?: string;
+    uploads?: string;
+    extras?: string;
   }>;
 };
 
@@ -30,6 +33,7 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
   const today = new Date();
   const defaultEnd = today.toISOString().slice(0, 10);
   const defaultStartDate = new Date(today.getTime() - 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10);
+  const defaultWeekStart = new Date(today.getTime() - 1000 * 60 * 60 * 24 * 6).toISOString().slice(0, 10);
   const disabled = !readiness.serverReady;
 
   return (
@@ -54,6 +58,14 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
       {params.email === "sent" ? <div className="notice">Test email sent. Check your inbox and spam folder.</div> : null}
       {params.email === "skipped" ? <div className="notice">Email is disabled. Set ENABLE_EMAIL=true and redeploy.</div> : null}
       {params.email === "failed" ? <div className="notice">Test email failed: {params.message ?? "Gmail SMTP returned an error."}</div> : null}
+      {params.weekEmail === "sent" ? (
+        <div className="notice">
+          Weekly test email sent: checked {params.uploads ?? "0"} upload(s), found {params.weekly ?? "0"} weekly report(s), included {params.extras ?? "0"} extra upload link(s).
+        </div>
+      ) : null}
+      {params.weekEmail === "skipped" ? <div className="notice">Weekly test email was skipped because email is disabled.</div> : null}
+      {params.weekEmail === "empty" ? <div className="notice">No weekly report or extra uploads needed email for that week.</div> : null}
+      {params.weekEmail === "failed" ? <div className="notice">Weekly test email failed: {params.message ?? "Gmail SMTP returned an error."}</div> : null}
       {params.repair === "done" ? (
         <div className="notice">
           Placeholder repair complete: checked {params.checked ?? "0"} weekly report(s), repaired {params.repaired ?? "0"}, still placeholder {params.placeholder ?? "0"},
@@ -83,12 +95,27 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
           </form>
         </Card>
 
+        <Card title="Email Selected Week" eyebrow="Weekly digest test">
+          <form action={emailSelectedWeekAction} className="form-grid">
+            <label>
+              Week start
+              <input type="date" name="weekStart" defaultValue={defaultWeekStart} required />
+            </label>
+            <p className="muted">
+              Fetches that week, summarizes the high-confidence weekly report if needed, and emails one digest with extra upload summarize links.
+            </p>
+            <Button type="submit" disabled={disabled} title={disabled ? "Configure server environment first" : "Email the selected week digest"}>
+              Email selected week
+            </Button>
+          </form>
+        </Card>
+
         <Card title="What This Does">
           <ul className="summary-list">
             <li>Fetches channel uploads published inside the selected date range.</li>
             <li>Classifies every upload as weekly report, possible report, extra upload, or ignored.</li>
             <li>Only summarizes high-confidence weekly reports.</li>
-            <li>Does not send email during historical testing.</li>
+            <li>Date range backfill does not send email; selected week email sends one digest.</li>
             <li>Dry run previews the classification count without storing summaries.</li>
           </ul>
         </Card>

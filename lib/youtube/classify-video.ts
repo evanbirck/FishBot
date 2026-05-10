@@ -48,6 +48,7 @@ const positiveRules = [
   { pattern: /\bfishing report\b/i, points: 35, reason: "fishing report" },
   { pattern: /\bcalifornia delta\b/i, points: 20, reason: "California Delta" },
   { pattern: /\bdelta\b/i, points: 15, reason: "Delta" },
+  { pattern: /\btournament\b/i, points: 8, reason: "tournament" },
   { pattern: /\bin deep\b/i, points: 10, reason: "In Deep" },
   { pattern: /\breport\b/i, points: 10, reason: "report" },
   { pattern: /\b(this week|week of|weekly update)\b/i, points: 10, reason: "week wording" },
@@ -58,7 +59,6 @@ const positiveRules = [
 const negativeRules = [
   { pattern: /\bshorts?\b/i, points: -45, reason: "shorts" },
   { pattern: /\blive\b/i, points: -25, reason: "live" },
-  { pattern: /\btournament\b/i, points: -25, reason: "tournament" },
   { pattern: /\bannouncement\b/i, points: -25, reason: "announcement" },
   { pattern: /\bgear\b/i, points: -25, reason: "gear" },
   { pattern: /\bgiveaway\b/i, points: -35, reason: "giveaway" },
