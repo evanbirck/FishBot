@@ -15,6 +15,7 @@ export type DashboardData = {
   latestReport: ReportWithSummary | null;
   reports: ReportWithSummary[];
   runs: Tables<"job_runs">[];
+  emailDeliveries: Tables<"email_deliveries">[];
   stats: {
     totalReports: number;
     emailConfigured: boolean;
@@ -28,6 +29,7 @@ const EMPTY_DATA: DashboardData = {
   latestReport: null,
   reports: [],
   runs: [],
+  emailDeliveries: [],
   stats: {
     totalReports: 0,
     emailConfigured: false,
@@ -48,10 +50,11 @@ export async function getDashboardData(): Promise<DashboardData> {
   try {
     const supabase = getSupabaseAdmin();
 
-    const [videosResult, summariesResult, runsResult] = await Promise.all([
+    const [videosResult, summariesResult, runsResult, emailDeliveriesResult] = await Promise.all([
       supabase.from("videos").select("*").order("published_at", { ascending: false }).limit(12),
       supabase.from("summaries").select("*").order("created_at", { ascending: false }).limit(12),
-      supabase.from("job_runs").select("*").order("started_at", { ascending: false }).limit(8)
+      supabase.from("job_runs").select("*").order("started_at", { ascending: false }).limit(8),
+      supabase.from("email_deliveries").select("*").order("created_at", { ascending: false }).limit(12)
     ]);
 
     const error = [videosResult.error, summariesResult.error, runsResult.error].find(Boolean);
@@ -77,6 +80,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       latestReport,
       reports,
       runs: runsResult.data ?? [],
+      emailDeliveries: emailDeliveriesResult.error ? [] : (emailDeliveriesResult.data ?? []),
       stats: {
         totalReports: videosResult.data?.length ?? 0,
         emailConfigured: Boolean(process.env.EMAIL_TO && process.env.GMAIL_SMTP_USER),

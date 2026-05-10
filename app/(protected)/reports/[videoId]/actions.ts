@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getServerEnv } from "@/lib/env";
-import { createSummaryForVideo } from "@/lib/pipeline";
+import { createSummaryForVideo, createSummaryForVideoWithManualTranscript } from "@/lib/pipeline";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function summarizeVideoAction(videoId: string) {
@@ -16,6 +16,23 @@ export async function summarizeVideoAction(videoId: string) {
     .update({ user_approval_status: "user_approved", approved_at: new Date().toISOString() })
     .eq("id", video.data.id);
   await createSummaryForVideo(video.data, env);
+  revalidatePath("/dashboard");
+  revalidatePath("/reports");
+  revalidatePath(`/reports/${videoId}`);
+}
+
+export async function summarizeWithManualTranscriptAction(videoId: string, formData: FormData) {
+  const transcript = String(formData.get("transcript") ?? "");
+  const env = getServerEnv();
+  const supabase = getSupabaseAdmin();
+  const video = await supabase.from("videos").select("*").eq("youtube_video_id", videoId).single();
+  if (video.error) throw video.error;
+
+  await supabase
+    .from("videos")
+    .update({ user_approval_status: "user_approved", approved_at: new Date().toISOString() })
+    .eq("id", video.data.id);
+  await createSummaryForVideoWithManualTranscript(video.data, env, transcript);
   revalidatePath("/dashboard");
   revalidatePath("/reports");
   revalidatePath(`/reports/${videoId}`);

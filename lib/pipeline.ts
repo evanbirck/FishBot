@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { WEEKLY_REPORT_JOB_NAME } from "@/lib/constants";
 import { estimateOpenAiCostUsd, roundMoney } from "@/lib/costing";
 import { formatWeeklyEmailDigest } from "@/lib/email/format-digest";
@@ -353,6 +354,77 @@ export async function createSummaryForVideo(video: Tables<"videos">, env: Return
   return result.data;
 }
 
+export async function createSummaryForVideoWithManualTranscript(video: Tables<"videos">, env: ReturnType<typeof getServerEnv>, transcriptText: string) {
+  const cleanedTranscript = transcriptText.replace(/\s+/g, " ").trim();
+  if (cleanedTranscript.length < 100) {
+    throw new Error("Paste a longer transcript before summarizing.");
+  }
+
+  const supabase = getSupabaseAdmin();
+  await supabase
+    .from("videos")
+    .update({
+      transcript_status: "found",
+      transcript_source: "manual",
+      transcript_language: "en",
+      transcript_text: cleanedTranscript,
+      transcript_hash: createHash("sha256").update(cleanedTranscript).digest("hex"),
+      processed_at: new Date().toISOString()
+    })
+    .eq("id", video.id);
+
+  const summaryResult = await summarizeReportWithUsage(env, {
+    title: video.title,
+    publishedAt: video.published_at,
+    transcriptStatus: "found",
+    transcriptText: cleanedTranscript,
+    transcriptSource: "manual",
+    videoUrl: video.video_url
+  });
+  const estimatedCost = summaryResult.usage ? roundMoney(estimateOpenAiCostUsd(summaryResult.usage, env)) : null;
+  const priceSnapshot =
+    summaryResult.usage && estimatedCost !== null
+      ? {
+          inputCostPer1M: env.OPENAI_INPUT_COST_PER_1M,
+          outputCostPer1M: env.OPENAI_OUTPUT_COST_PER_1M
+        }
+      : {};
+
+  const result = await supabase
+    .from("summaries")
+    .upsert(
+      {
+        video_id: video.id,
+        model: env.OPENAI_SUMMARY_MODEL,
+        prompt_version: getPromptVersion(),
+        summary_json: summaryResult.summary as unknown as Json,
+        digest_text: "",
+        char_count: 0,
+        input_tokens: summaryResult.usage?.inputTokens ?? null,
+        output_tokens: summaryResult.usage?.outputTokens ?? null,
+        total_tokens: summaryResult.usage?.totalTokens ?? null,
+        estimated_openai_cost_usd: estimatedCost,
+        cost_source: summaryResult.usage ? "openai_usage" : "manual_transcript",
+        model_price_snapshot: priceSnapshot as Json
+      },
+      { onConflict: "video_id" }
+    )
+    .select("*")
+    .single();
+
+  if (result.error) throw result.error;
+
+  await supabase
+    .from("videos")
+    .update({
+      user_approval_status: "summarized",
+      summarized_at: new Date().toISOString()
+    })
+    .eq("id", video.id);
+
+  return result.data;
+}
+
 async function sendWeeklyDigestEmail(input: {
   weeklyVideo: Tables<"videos"> | null;
   summary: Tables<"summaries"> | null;
@@ -393,7 +465,44 @@ async function sendWeeklyDigestEmail(input: {
       .eq("id", input.summary.id);
   }
 
-  await sendEmail(input.env, digest);
+  const delivery = await supabase
+    .from("email_deliveries")
+    .insert({
+      summary_id: input.summary?.id ?? null,
+      subject: digest.subject,
+      email_to: input.env.EMAIL_TO,
+      email_from: input.env.EMAIL_FROM || input.env.GMAIL_SMTP_USER || "FishBot",
+      provider: "gmail_smtp",
+      status: "queued"
+    })
+    .select("id")
+    .maybeSingle();
+
+  try {
+    const emailResult = await sendEmail(input.env, digest);
+
+    if (delivery.data?.id) {
+      await supabase
+        .from("email_deliveries")
+        .update({
+          provider_message_id: emailResult.providerMessageId,
+          status: emailResult.status,
+          sent_at: emailResult.status === "sent" ? new Date().toISOString() : null
+        })
+        .eq("id", delivery.data.id);
+    }
+  } catch (error) {
+    if (delivery.data?.id) {
+      await supabase
+        .from("email_deliveries")
+        .update({
+          status: "failed",
+          error_message: error instanceof Error ? error.message : "Email delivery failed."
+        })
+        .eq("id", delivery.data.id);
+    }
+    throw error;
+  }
 
   if (input.extraVideos.length) {
     await supabase

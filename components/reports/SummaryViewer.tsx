@@ -19,7 +19,7 @@ export function SummaryViewer({ summary }: SummaryViewerProps) {
     ["Presentations", summary.presentations],
     ["Depths", summary.depths],
     ["Species", summary.species],
-    ["Warnings", summary.warnings],
+    ["Warnings", summary.warnings.map(cleanTranscriptWarning)],
     ["Game plan", summary.gamePlan]
   ].filter(([, values]) => Array.isArray(values) && values.length > 0) as Array<[string, string[]]>;
 
@@ -39,4 +39,11 @@ export function SummaryViewer({ summary }: SummaryViewerProps) {
       </dl>
     </div>
   );
+}
+
+function cleanTranscriptWarning(value: string): string {
+  if (/YoutubeTranscript|caption tracks|Transcript is disabled/i.test(value)) {
+    return "Transcript extraction did not return usable caption text.";
+  }
+  return value;
 }

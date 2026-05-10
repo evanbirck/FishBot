@@ -7,6 +7,7 @@ export type ClassificationStatus = "pending" | "classified" | "failed";
 export type ClassificationConfidence = "high" | "medium" | "low";
 export type RecommendedAction = "auto_summarize" | "ask_user" | "ignore";
 export type UserApprovalStatus = "none" | "summary_available_on_request" | "user_approved" | "ignored" | "summarized";
+export type EmailDeliveryStatus = "queued" | "sent" | "skipped" | "failed";
 
 export type Database = {
   public: {
@@ -135,6 +136,36 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["summaries"]["Insert"]>;
+        Relationships: [];
+      };
+      email_deliveries: {
+        Row: {
+          id: string;
+          summary_id: string | null;
+          subject: string;
+          email_to: string;
+          email_from: string;
+          provider: string;
+          provider_message_id: string | null;
+          status: EmailDeliveryStatus;
+          error_message: string | null;
+          sent_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          summary_id?: string | null;
+          subject: string;
+          email_to: string;
+          email_from: string;
+          provider?: string;
+          provider_message_id?: string | null;
+          status?: EmailDeliveryStatus;
+          error_message?: string | null;
+          sent_at?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["email_deliveries"]["Insert"]>;
         Relationships: [];
       };
       job_runs: {

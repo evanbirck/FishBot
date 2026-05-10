@@ -1,4 +1,5 @@
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
+import { EmailDeliveriesTable } from "@/components/dashboard/EmailDeliveriesTable";
 import { LatestReportCard } from "@/components/dashboard/LatestReportCard";
 import { RecentRunsTable } from "@/components/dashboard/RecentRunsTable";
 import { VideoClassificationTable } from "@/components/dashboard/VideoClassificationTable";
@@ -33,6 +34,10 @@ export default async function DashboardPage() {
 
       <Card title="Video Classification">
         <VideoClassificationTable reports={data.reports} />
+      </Card>
+
+      <Card title="Email Deliveries">
+        <EmailDeliveriesTable deliveries={data.emailDeliveries} />
       </Card>
     </div>
   );

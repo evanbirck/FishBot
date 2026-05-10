@@ -41,6 +41,6 @@ describe("summary validation", () => {
     });
 
     expect(reportSummarySchema.parse(placeholder).confidence).toBe("low");
-    expect(placeholder.warnings).toContain("No transcript");
+    expect(placeholder.warnings).toContain("Transcript extraction did not return usable caption text.");
   });
 });

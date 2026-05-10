@@ -74,6 +74,24 @@ create table public.summaries (
 
 create index summaries_created_at_idx on public.summaries(created_at desc);
 
+create table public.email_deliveries (
+  id uuid primary key default gen_random_uuid(),
+  summary_id uuid references public.summaries(id) on delete set null,
+  subject text not null,
+  email_to text not null,
+  email_from text not null,
+  provider text not null default 'gmail_smtp',
+  provider_message_id text,
+  status text not null default 'queued'
+    check (status in ('queued','sent','skipped','failed')),
+  error_message text,
+  sent_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index email_deliveries_status_idx on public.email_deliveries(status);
+create index email_deliveries_created_at_idx on public.email_deliveries(created_at desc);
+
 create table public.job_runs (
   id uuid primary key default gen_random_uuid(),
   job_name text not null,
@@ -89,6 +107,7 @@ create table public.job_runs (
 alter table public.channels enable row level security;
 alter table public.videos enable row level security;
 alter table public.summaries enable row level security;
+alter table public.email_deliveries enable row level security;
 alter table public.job_runs enable row level security;
 
 create policy "public can read channels" on public.channels for select using (true);

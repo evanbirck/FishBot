@@ -149,7 +149,7 @@ export function createPlaceholderSummary(input: {
     presentations: [],
     depths: [],
     species: [],
-    warnings: [input.reason],
+    warnings: ["Transcript extraction did not return usable caption text."],
     gamePlan: [
       `Review the video directly: ${input.videoUrl}`
     ],
