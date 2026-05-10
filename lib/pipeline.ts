@@ -343,11 +343,12 @@ export async function createSummaryForVideo(video: Tables<"videos">, env: Return
 
   if (result.error) throw result.error;
 
+  const didCreateRealSummary = result.data.model !== "placeholder";
   await supabase
     .from("videos")
     .update({
-      user_approval_status: video.user_approval_status === "ignored" ? "ignored" : "summarized",
-      summarized_at: new Date().toISOString()
+      user_approval_status: video.user_approval_status === "ignored" ? "ignored" : didCreateRealSummary ? "summarized" : "summary_available_on_request",
+      summarized_at: didCreateRealSummary ? new Date().toISOString() : null
     })
     .eq("id", video.id);
 

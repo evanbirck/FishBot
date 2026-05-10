@@ -14,12 +14,19 @@ type ReportDetailPageProps = {
   params: Promise<{
     videoId: string;
   }>;
+  searchParams: Promise<{
+    summary?: string;
+    message?: string;
+  }>;
 };
 
-export default async function ReportDetailPage({ params }: ReportDetailPageProps) {
+export default async function ReportDetailPage({ params, searchParams }: ReportDetailPageProps) {
   const { videoId } = await params;
+  const notice = await searchParams;
   const report = await getReportByVideoId(videoId);
   if (!report) notFound();
+  const isPlaceholderSummary = report.summary?.model === "placeholder";
+  const displayedStatus = isPlaceholderSummary ? "needs_summary" : report.user_approval_status;
 
   return (
     <div className="page">
@@ -33,6 +40,12 @@ export default async function ReportDetailPage({ params }: ReportDetailPageProps
           YouTube <ExternalLink size={16} />
         </ButtonLink>
       </div>
+
+      {notice.summary === "done" ? <div className="notice">Summary generated.</div> : null}
+      {notice.summary === "placeholder" ? (
+        <div className="notice">Transcript still was not available, so FishBot kept the fallback placeholder.</div>
+      ) : null}
+      {notice.summary === "failed" ? <div className="notice">Summary failed: {notice.message ?? "OpenAI or transcript processing returned an error."}</div> : null}
 
       <section className="detail-grid">
         <Card title="Summary" action={<Badge tone={statusTone(report.transcript_status)}>{report.transcript_status}</Badge>}>
@@ -72,7 +85,7 @@ export default async function ReportDetailPage({ params }: ReportDetailPageProps
             </div>
             <div>
               <dt>Status</dt>
-              <dd>{report.user_approval_status}</dd>
+              <dd>{displayedStatus}</dd>
             </div>
           </dl>
         </Card>
