@@ -28,7 +28,7 @@ An internal automation system for monitoring weekly California Delta fishing rep
 - Dashboard with latest report, classification state, runs, deliveries, and settings readiness
 - Cost tracking for OpenAI token usage and SMS delivery estimates
 - Historical testing page for date-range backfills without sending SMS
-- Protected cron and manual run routes
+- Protected cron route
 - Tests and CI
 
 ## Setup
@@ -88,7 +88,7 @@ Optional cost-estimate values:
 
 This runs around Thursday 7:00 PM Pacific during daylight time because Vercel cron is UTC.
 
-An optional Friday morning backup check can be added at `0 16 * * 5`, which is around Friday 9:00 AM Pacific. Vercel Hobby deployments can be limited on cron frequency, so the default config keeps only the Thursday evening check. Use the dashboard `Run now` button as the backup.
+An optional Friday morning backup check can be added at `0 16 * * 5`, which is around Friday 9:00 AM Pacific. Vercel Hobby deployments can be limited on cron frequency, so the default config keeps only the Thursday evening check.
 
 ## Local Development
 
@@ -105,7 +105,7 @@ Run the app:
 npm run dev
 ```
 
-Sign in at `/login` with `DASHBOARD_PASSWORD`. The dashboard `Run now` button is enabled in local development only after required server environment variables are configured. It is disabled in production.
+Sign in at `/login` with `DASHBOARD_PASSWORD`. Use the Testing page for controlled historical dry runs and backfills. Production processing is handled by the protected cron route.
 
 ## Runtime Flow
 

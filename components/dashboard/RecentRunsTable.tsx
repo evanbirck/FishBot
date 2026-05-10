@@ -9,7 +9,7 @@ type RecentRunsTableProps = {
 
 export function RecentRunsTable({ runs }: RecentRunsTableProps) {
   if (!runs.length) {
-    return <EmptyState title="No job runs" description="Cron and manual pipeline runs will be listed here." />;
+    return <EmptyState title="No job runs" description="Cron and historical testing runs will be listed here." />;
   }
 
   return (

@@ -11,10 +11,6 @@ export function weeklyRunKey(date = new Date()): string {
   return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
-export function manualRunKey(date = new Date()): string {
-  return `manual-${date.toISOString().replace(/[:.]/g, "-")}`;
-}
-
 export function smsDeliveryFingerprint(summaryId: string, recipientId: string): string {
   return `${summaryId}:${recipientId}`;
 }

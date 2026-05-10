@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { manualRunKey, shouldSkipRun, smsDeliveryFingerprint, weeklyRunKey } from "@/lib/idempotency";
+import { shouldSkipRun, smsDeliveryFingerprint, weeklyRunKey } from "@/lib/idempotency";
 
 describe("idempotency helpers", () => {
   it("creates stable weekly ISO run keys", () => {
     expect(weeklyRunKey(new Date("2026-05-07T16:00:00Z"))).toBe("2026-W19");
-  });
-
-  it("creates unique manual run keys", () => {
-    expect(manualRunKey(new Date("2026-05-10T01:02:03.004Z"))).toBe("manual-2026-05-10T01-02-03-004Z");
   });
 
   it("skips terminal successful runs only", () => {

@@ -13,7 +13,7 @@ export default async function RunsPage() {
         <div>
           <p className="eyebrow">Automation</p>
           <h1>Runs</h1>
-          <p>Recent cron and manual pipeline executions.</p>
+          <p>Recent cron and historical testing executions.</p>
         </div>
       </div>
       {data.error ? <div className="notice">{data.error}</div> : null}

@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import { POST as loginPost } from "@/app/api/auth/login/route";
 import { POST as logoutPost } from "@/app/api/auth/logout/route";
 import { createAuthToken, AUTH_COOKIE_NAME } from "@/lib/auth/session";
-import { isManualRunRequestAuthorized } from "@/lib/auth/manual-run";
 import { middleware } from "@/middleware";
 
 const validEnv = {
@@ -81,18 +80,4 @@ describe("dashboard authentication", () => {
     expect(inbound.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("keeps manual run API protected", async () => {
-    const request = new NextRequest("http://localhost/api/manual/run", { method: "POST" });
-
-    expect(await isManualRunRequestAuthorized(request, validEnv.CRON_SECRET)).toBe(false);
-  });
-
-  it("allows manual run API with CRON_SECRET", async () => {
-    const request = new NextRequest("http://localhost/api/manual/run", {
-      method: "POST",
-      headers: { authorization: `Bearer ${validEnv.CRON_SECRET}` }
-    });
-
-    expect(await isManualRunRequestAuthorized(request, validEnv.CRON_SECRET)).toBe(true);
-  });
 });

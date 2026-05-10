@@ -2,7 +2,7 @@ import { WEEKLY_REPORT_JOB_NAME, SMS_PROVIDER } from "@/lib/constants";
 import { estimateOpenAiCostUsd, roundMoney } from "@/lib/costing";
 import { getServerEnv } from "@/lib/env";
 import { getErrorMessage } from "@/lib/errors";
-import { manualRunKey, shouldSkipRun, weeklyRunKey } from "@/lib/idempotency";
+import { shouldSkipRun, weeklyRunKey } from "@/lib/idempotency";
 import { logger } from "@/lib/logger";
 import { formatWeeklyDigest, type ExtraUploadOption } from "@/lib/sms/format-digest";
 import { sendSmsMessages } from "@/lib/sms";
@@ -13,7 +13,7 @@ import { fetchTranscript } from "@/lib/transcript";
 import { discoverAndClassifyRecentUploads, type YouTubeVideoCandidate } from "@/lib/youtube";
 import type { VideoClassification } from "@/lib/youtube/classify-video";
 
-export type PipelineTrigger = "cron" | "manual" | "backfill";
+export type PipelineTrigger = "cron" | "backfill";
 
 type PipelineInput = {
   trigger: PipelineTrigger;
@@ -35,7 +35,7 @@ type ClassifiedCandidate = YouTubeVideoCandidate & {
 export async function runWeeklyReport(input: PipelineInput): Promise<PipelineResult> {
   const env = getServerEnv();
   const supabase = getSupabaseAdmin();
-  const runKey = input.runKey ?? (input.trigger === "cron" ? weeklyRunKey() : manualRunKey());
+  const runKey = input.runKey ?? weeklyRunKey();
   const jobRun = await startJobRun(runKey, input.trigger);
 
   if (jobRun.skipped) {

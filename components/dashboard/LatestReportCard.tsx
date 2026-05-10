@@ -16,7 +16,7 @@ export function LatestReportCard({ report }: LatestReportCardProps) {
       <Card title="Latest Report">
         <EmptyState
           title="No reports yet"
-          description="Once the cron job or manual run processes a video, the latest summary appears here."
+          description="Once the cron job or historical testing processes a video, the latest summary appears here."
         />
       </Card>
     );
