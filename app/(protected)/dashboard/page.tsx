@@ -1,7 +1,6 @@
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { LatestReportCard } from "@/components/dashboard/LatestReportCard";
 import { RecentRunsTable } from "@/components/dashboard/RecentRunsTable";
-import { SmsDeliveriesTable } from "@/components/dashboard/SmsDeliveriesTable";
 import { VideoClassificationTable } from "@/components/dashboard/VideoClassificationTable";
 import { Card } from "@/components/ui/Card";
 import { getDashboardData } from "@/lib/supabase/queries";
@@ -17,7 +16,7 @@ export default async function DashboardPage() {
         <div>
           <p className="eyebrow">Operations</p>
           <h1>Dashboard</h1>
-          <p>Latest report, cron history, transcript status, recipients, and Twilio delivery state.</p>
+          <p>Latest report, cron history, transcript status, and Gmail email delivery readiness.</p>
         </div>
       </div>
 
@@ -31,10 +30,6 @@ export default async function DashboardPage() {
           <RecentRunsTable runs={data.runs} />
         </Card>
       </div>
-
-      <Card title="SMS Deliveries">
-        <SmsDeliveriesTable deliveries={data.deliveries} />
-      </Card>
 
       <Card title="Video Classification">
         <VideoClassificationTable reports={data.reports} />

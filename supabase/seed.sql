@@ -16,6 +16,4 @@ insert into public.channels (
   uploads_playlist_id = excluded.uploads_playlist_id,
   active = excluded.active;
 
--- Add verified recipients manually. Keep opt_in_confirmed=false until they have explicitly opted in.
--- insert into public.recipients (phone_e164, display_name, active, opt_in_confirmed)
--- values ('+15555550123', 'Operations recipient', true, true);
+-- Email delivery is configured with Gmail SMTP environment variables.

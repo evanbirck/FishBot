@@ -18,10 +18,6 @@ export function estimateOpenAiCostUsd(
   return (usage.inputTokens / 1_000_000) * rates.OPENAI_INPUT_COST_PER_1M + (usage.outputTokens / 1_000_000) * rates.OPENAI_OUTPUT_COST_PER_1M;
 }
 
-export function estimateSmsCostUsd(numSegments: number, ratePerSegment: number): number {
-  return Math.max(0, numSegments) * ratePerSegment;
-}
-
 export function roundMoney(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000;
 }

@@ -14,7 +14,7 @@ export default async function CostsPage() {
         <div>
           <p className="eyebrow">Usage accounting</p>
           <h1>Costs</h1>
-          <p>Estimated OpenAI token spend, SMS delivery cost, and per-summary usage records.</p>
+          <p>Estimated OpenAI token spend and per-summary usage records.</p>
         </div>
       </div>
 
@@ -36,13 +36,9 @@ export default async function CostsPage() {
           <p>Tokens</p>
           <strong>{formatNumber(data.totals.totalTokens)}</strong>
         </div>
-        <div className="stat-card">
-          <p>SMS segments</p>
-          <strong>{formatNumber(data.totals.smsSegments)}</strong>
-        </div>
       </div>
 
-      <div className="detail-grid">
+      <div className="section-grid">
         <Card title="OpenAI Tokens">
           <dl className="settings-list">
             <div>
@@ -60,19 +56,6 @@ export default async function CostsPage() {
             <div>
               <dt>Estimated rows</dt>
               <dd>{formatNumber(data.totals.estimatedRows)}</dd>
-            </div>
-          </dl>
-        </Card>
-
-        <Card title="SMS">
-          <dl className="settings-list">
-            <div>
-              <dt>Estimated SMS cost</dt>
-              <dd>{formatUsd(data.totals.smsCostUsd)}</dd>
-            </div>
-            <div>
-              <dt>Segments</dt>
-              <dd>{formatNumber(data.totals.smsSegments)}</dd>
             </div>
           </dl>
         </Card>

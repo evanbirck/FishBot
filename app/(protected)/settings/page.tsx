@@ -9,7 +9,9 @@ export default async function SettingsPage() {
   const readinessRows = [
     ["Browser env", data.readiness.browserReady],
     ["Server env", data.readiness.serverReady],
-    ["Twilio callback URL", data.readiness.optional.TWILIO_STATUS_CALLBACK_URL],
+    ["Gmail SMTP", data.readiness.optional.EMAIL_READY],
+    ["Email from", data.readiness.optional.EMAIL_FROM],
+    ["Email action secret", data.readiness.optional.EMAIL_ACTION_SECRET],
     ["App base URL", data.readiness.optional.APP_BASE_URL]
   ] as const;
 
@@ -19,7 +21,7 @@ export default async function SettingsPage() {
         <div>
           <p className="eyebrow">Read-only configuration</p>
           <h1>Settings</h1>
-          <p>Source channel, cron path, environment readiness, and recipient counts without exposing secrets.</p>
+          <p>Source channel, cron path, and Gmail SMTP readiness without exposing secrets.</p>
         </div>
       </div>
 
@@ -37,8 +39,8 @@ export default async function SettingsPage() {
               <dd>{data.cronPath}</dd>
             </div>
             <div>
-              <dt>Active recipients</dt>
-              <dd>{data.recipientCount}</dd>
+              <dt>Email recipient</dt>
+              <dd>{data.emailTo}</dd>
             </div>
           </dl>
         </Card>

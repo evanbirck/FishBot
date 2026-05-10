@@ -1,27 +1,28 @@
+import { createSummarizeLink } from "@/lib/email/action-links";
+import type { ServerEnv } from "@/lib/env";
 import type { ReportSummary } from "@/lib/summarize";
-import { normalizeAscii, splitSms } from "@/lib/sms/split-sms";
+import { normalizeAscii } from "@/lib/text";
 
 export type ExtraUploadOption = {
-  optionNumber: number;
   title: string;
   url: string;
+  youtubeVideoId: string;
 };
 
-export type WeeklyDigestInput = {
+export type WeeklyEmailDigestInput = {
   reportDate?: string | null;
   weeklyReport?: {
     summary: ReportSummary;
     videoUrl: string;
   } | null;
   extraUploads?: ExtraUploadOption[];
-  maxChunk?: number;
+  env: Pick<ServerEnv, "APP_BASE_URL" | "EMAIL_ACTION_SECRET" | "CRON_SECRET">;
 };
 
-export type FormattedDigest = {
+export type FormattedEmailDigest = {
+  subject: string;
   text: string;
-  messages: string[];
-  messageCount: number;
-  hasReplyAll: boolean;
+  hasActionLinks: boolean;
 };
 
 const CATEGORY_RENDERERS: Array<[string, (summary: ReportSummary) => string[]]> = [
@@ -40,64 +41,43 @@ const CATEGORY_RENDERERS: Array<[string, (summary: ReportSummary) => string[]]> 
   ["Game plan", (summary) => summary.gamePlan]
 ];
 
-export function formatWeeklyDigest(input: WeeklyDigestInput): FormattedDigest {
+export function formatWeeklyEmailDigest(input: WeeklyEmailDigestInput): FormattedEmailDigest {
   const extraUploads = dedupeExtraUploads(input.extraUploads ?? []);
   const lines = input.weeklyReport
     ? weeklyReportLines(input.weeklyReport.summary, input.weeklyReport.videoUrl, input.reportDate)
-    : noWeeklyReportLines(extraUploads);
+    : noWeeklyReportLines(extraUploads, input.env);
 
   if (input.weeklyReport && extraUploads.length) {
-    lines.push("", "Extra uploads:", ...extraUploadLines(extraUploads), "Reply ALL to summarize all extra uploads.");
+    lines.push("", "Extra uploads:", ...extraUploadLines(extraUploads, input.env));
   }
 
-  const text = normalizeAscii(lines.join("\n"));
-  const messages = splitSms(text, {
-    maxChunk: input.maxChunk,
-    prefixBase: "Delta Report"
-  });
-
   return {
-    text,
-    messages,
-    messageCount: messages.length,
-    hasReplyAll: extraUploads.length > 0
+    subject: input.weeklyReport ? `FishBot Delta Report${input.reportDate ? ` ${input.reportDate}` : ""}` : "FishBot Uploads Need Review",
+    text: normalizeAscii(lines.join("\n")),
+    hasActionLinks: extraUploads.length > 0
   };
 }
 
-export function formatRequestedVideoSummary(input: {
+export function formatRequestedVideoEmail(input: {
   title: string;
   summary: ReportSummary;
   videoUrl: string;
-  maxChunk?: number;
-}): FormattedDigest {
-  const lines = [`Summary: ${input.title}`, ...summaryBulletLines(input.summary), `Video: ${input.videoUrl}`];
-  const text = normalizeAscii(lines.join("\n"));
-  const messages = splitSms(text, {
-    maxChunk: input.maxChunk,
-    prefixBase: "Summary",
-    finalRequiredLines: [`Video: ${input.videoUrl}`]
-  });
-
+}): FormattedEmailDigest {
+  const text = normalizeAscii([`FishBot summary: ${input.title}`, "", ...summaryBulletLines(input.summary), "", `Video: ${input.videoUrl}`].join("\n"));
   return {
+    subject: `FishBot Summary: ${truncateTitle(input.title, 60)}`,
     text,
-    messages,
-    messageCount: messages.length,
-    hasReplyAll: false
+    hasActionLinks: false
   };
 }
 
 function weeklyReportLines(summary: ReportSummary, videoUrl: string, reportDate?: string | null): string[] {
-  return [
-    `Delta Report${reportDate ? ` ${reportDate}` : ""}:`,
-    ...summaryBulletLines(summary),
-    "",
-    `Video: ${videoUrl}`
-  ];
+  return [`FishBot Delta Report${reportDate ? ` ${reportDate}` : ""}:`, "", ...summaryBulletLines(summary), "", `Video: ${videoUrl}`];
 }
 
-function noWeeklyReportLines(extraUploads: ExtraUploadOption[]): string[] {
+function noWeeklyReportLines(extraUploads: ExtraUploadOption[], env: WeeklyEmailDigestInput["env"]): string[] {
   if (!extraUploads.length) return ["No clear weekly Delta fishing report was detected."];
-  return ["In Deep posted:", ...extraUploadLines(extraUploads), "Reply ALL to summarize all listed videos."];
+  return ["In Deep posted new uploads that are not clearly weekly reports.", "", ...extraUploadLines(extraUploads, env)];
 }
 
 function summaryBulletLines(summary: ReportSummary): string[] {
@@ -110,8 +90,12 @@ function summaryBulletLines(summary: ReportSummary): string[] {
   return summary.headline ? [`- Bite: ${summary.headline}`] : [];
 }
 
-function extraUploadLines(extraUploads: ExtraUploadOption[]): string[] {
-  return extraUploads.map((upload) => `${upload.optionNumber}) ${truncateTitle(upload.title)} - reply YES ${upload.optionNumber}`);
+function extraUploadLines(extraUploads: ExtraUploadOption[], env: WeeklyEmailDigestInput["env"]): string[] {
+  return extraUploads.flatMap((upload, index) => [
+    `${index + 1}) ${truncateTitle(upload.title)}`,
+    `   Video: ${upload.url}`,
+    `   Summarize: ${createSummarizeLink(env, upload.youtubeVideoId)}`
+  ]);
 }
 
 function compactValues(values: string[]): string[] {
@@ -122,7 +106,7 @@ function arrayFromOptional(value?: string | null): string[] {
   return value?.trim() ? [value.trim()] : [];
 }
 
-function truncateTitle(title: string, maxLength = 74): string {
+function truncateTitle(title: string, maxLength = 96): string {
   const asciiTitle = normalizeAscii(title).replace(/\s+/g, " ");
   if (asciiTitle.length <= maxLength) return asciiTitle;
   return `${asciiTitle.slice(0, maxLength - 3).trim()}...`;
@@ -131,7 +115,7 @@ function truncateTitle(title: string, maxLength = 74): string {
 function dedupeExtraUploads(extraUploads: ExtraUploadOption[]): ExtraUploadOption[] {
   const seen = new Set<string>();
   return extraUploads.filter((upload) => {
-    const key = upload.url || upload.title;
+    const key = upload.youtubeVideoId || upload.url || upload.title;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

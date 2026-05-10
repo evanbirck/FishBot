@@ -11,16 +11,6 @@ create table public.channels (
   last_checked_at timestamptz
 );
 
-create table public.recipients (
-  id uuid primary key default gen_random_uuid(),
-  phone_e164 text not null unique,
-  display_name text,
-  active boolean not null default true,
-  opt_in_confirmed boolean not null default false,
-  locale text not null default 'en-US',
-  created_at timestamptz not null default now()
-);
-
 create table public.videos (
   id uuid primary key default gen_random_uuid(),
   channel_id uuid not null references public.channels(id) on delete cascade,
@@ -71,7 +61,7 @@ create table public.summaries (
   model text not null,
   prompt_version text not null,
   summary_json jsonb not null,
-  sms_text text not null,
+  digest_text text not null,
   char_count integer not null,
   input_tokens integer,
   output_tokens integer,
@@ -83,47 +73,6 @@ create table public.summaries (
 );
 
 create index summaries_created_at_idx on public.summaries(created_at desc);
-
-create table public.sms_deliveries (
-  id uuid primary key default gen_random_uuid(),
-  summary_id uuid references public.summaries(id) on delete cascade,
-  recipient_id uuid not null references public.recipients(id) on delete cascade,
-  provider text not null default 'twilio',
-  provider_message_sid text unique,
-  status text not null default 'queued',
-  num_segments integer not null default 0,
-  price numeric(10,4),
-  price_unit text,
-  error_code text,
-  error_message text,
-  sent_at timestamptz,
-  delivered_at timestamptz,
-  callback_payload jsonb,
-  created_at timestamptz not null default now(),
-  unique(summary_id, recipient_id)
-);
-
-create index sms_deliveries_status_idx on public.sms_deliveries(status);
-
-create table public.pending_video_options (
-  id uuid primary key default gen_random_uuid(),
-  recipient_id uuid not null references public.recipients(id) on delete cascade,
-  video_id uuid not null references public.videos(id) on delete cascade,
-  option_number integer not null,
-  digest_message_id uuid,
-  status text not null default 'pending'
-    check (status in ('pending','approved','ignored','summarized','expired')),
-  created_at timestamptz not null default now(),
-  responded_at timestamptz,
-  response_text text,
-  unique(recipient_id, video_id)
-);
-
-create unique index pending_video_options_pending_number_idx
-  on public.pending_video_options(recipient_id, option_number, status)
-  where status = 'pending';
-create index pending_video_options_video_id_idx on public.pending_video_options(video_id);
-create index pending_video_options_recipient_status_idx on public.pending_video_options(recipient_id, status, created_at desc);
 
 create table public.job_runs (
   id uuid primary key default gen_random_uuid(),
@@ -138,15 +87,11 @@ create table public.job_runs (
 );
 
 alter table public.channels enable row level security;
-alter table public.recipients enable row level security;
 alter table public.videos enable row level security;
 alter table public.summaries enable row level security;
-alter table public.sms_deliveries enable row level security;
-alter table public.pending_video_options enable row level security;
 alter table public.job_runs enable row level security;
 
 create policy "public can read channels" on public.channels for select using (true);
 create policy "public can read videos" on public.videos for select using (true);
 create policy "public can read summaries" on public.summaries for select using (true);
 create policy "public can read job runs" on public.job_runs for select using (true);
-create policy "public can read delivery statuses" on public.sms_deliveries for select using (true);

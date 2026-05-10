@@ -14,11 +14,11 @@ const validEnv = {
   YOUTUBE_API_KEY: "youtube",
   YOUTUBE_CHANNEL_ID: "channel",
   YOUTUBE_CHANNEL_HANDLE: "@handle",
-  TWILIO_ACCOUNT_SID: "AC123",
-  TWILIO_AUTH_TOKEN: "token",
-  TWILIO_FROM_NUMBER: "+15555550123",
+  GMAIL_SMTP_USER: "fishbot@example.com",
+  GMAIL_APP_PASSWORD: "app-password",
+  EMAIL_TO: "evan@example.com",
   CRON_SECRET: "secret",
-  ENABLE_SMS: "true",
+  ENABLE_EMAIL: "true",
   APP_BASE_URL: "http://localhost:3000",
   DASHBOARD_PASSWORD: "devmenu"
 };
@@ -72,12 +72,12 @@ describe("dashboard authentication", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("does not block cron or Twilio webhook routes with dashboard auth", async () => {
+  it("does not block cron or email action routes with dashboard auth", async () => {
     const cron = await middleware(new NextRequest("http://localhost/api/cron/weekly-report"));
-    const inbound = await middleware(new NextRequest("http://localhost/api/sms/inbound"));
+    const summarize = await middleware(new NextRequest("http://localhost/api/videos/example/summarize"));
 
     expect(cron.headers.get("x-middleware-next")).toBe("1");
-    expect(inbound.headers.get("x-middleware-next")).toBe("1");
+    expect(summarize.headers.get("x-middleware-next")).toBe("1");
   });
 
 });

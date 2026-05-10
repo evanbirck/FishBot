@@ -1,20 +1,18 @@
-import { Activity, Clock, Radio, Send, Users } from "lucide-react";
+import { Activity, Clock, MailCheck, Radio } from "lucide-react";
 import { Badge, statusTone } from "@/components/ui/Badge";
 
 type DashboardStatsProps = {
   totalReports: number;
-  activeRecipients: number;
-  smsSentThisMonth: number;
+  emailConfigured: boolean;
   lastRunStatus: string;
   typicalPublishTime: string;
 };
 
-export function DashboardStats({ totalReports, activeRecipients, smsSentThisMonth, lastRunStatus, typicalPublishTime }: DashboardStatsProps) {
+export function DashboardStats({ totalReports, emailConfigured, lastRunStatus, typicalPublishTime }: DashboardStatsProps) {
   const items = [
     { label: "Reports", value: totalReports, icon: Radio },
     { label: "Last Run", value: <Badge tone={statusTone(lastRunStatus)}>{lastRunStatus}</Badge>, icon: Activity },
-    { label: "Active Recipients", value: activeRecipients, icon: Users },
-    { label: "SMS This Month", value: smsSentThisMonth, icon: Send },
+    { label: "Email", value: emailConfigured ? "Configured" : "Missing", icon: MailCheck },
     { label: "Typical weekly report publish time", value: typicalPublishTime, icon: Clock }
   ];
 

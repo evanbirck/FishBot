@@ -38,7 +38,7 @@ type SummarizeInput = {
 };
 
 const SYSTEM_PROMPT =
-  "You are an expert California Delta bass fishing report summarizer. Return structured JSON. Include as much useful fishing information as possible from the transcript. Do not invent details. Do not include fields that are not supported by the transcript. Prefer specific tactical details over generic summaries. Avoid repeated information. Keep wording concise enough for SMS rendering.";
+  "You are an expert California Delta bass fishing report summarizer. Return structured JSON. Include as much useful fishing information as possible from the transcript. Do not invent details. Do not include fields that are not supported by the transcript. Prefer specific tactical details over generic summaries. Avoid repeated information. Keep wording concise and tactical for email rendering.";
 
 const SUMMARY_JSON_SCHEMA = {
   type: "object",

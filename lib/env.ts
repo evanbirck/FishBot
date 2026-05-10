@@ -55,20 +55,20 @@ export const serverEnvSchema = browserEnvBaseSchema.extend({
   YOUTUBE_API_KEY: requiredString,
   YOUTUBE_CHANNEL_ID: requiredString,
   YOUTUBE_CHANNEL_HANDLE: optionalString,
-  TWILIO_ACCOUNT_SID: requiredString,
-  TWILIO_AUTH_TOKEN: requiredString,
-  TWILIO_FROM_NUMBER: optionalString,
-  TO_PHONE_NUMBER: optionalString,
-  TWILIO_MESSAGING_SERVICE_SID: optionalString,
-  TWILIO_STATUS_CALLBACK_URL: z.string().trim().url().optional().or(z.literal("")).default(""),
+  GMAIL_SMTP_HOST: optionalString.default("smtp.gmail.com"),
+  GMAIL_SMTP_PORT: optionalNumberFromString.default(465),
+  GMAIL_SMTP_USER: optionalString,
+  GMAIL_APP_PASSWORD: optionalString,
+  EMAIL_FROM: optionalString,
+  EMAIL_TO: z.string().trim().email().optional().or(z.literal("")).default(""),
+  EMAIL_ACTION_SECRET: optionalString,
   CRON_SECRET: requiredString,
-  ENABLE_SMS: booleanFromString.default("true"),
+  ENABLE_EMAIL: booleanFromString.default("false"),
   ENABLE_STT_FALLBACK: booleanFromString.default("false"),
-  APP_BASE_URL: z.string().trim().url().optional().or(z.literal("")).default(""),
+  APP_BASE_URL: requiredString.url(),
   DASHBOARD_PASSWORD: requiredString,
   OPENAI_INPUT_COST_PER_1M: optionalNumberFromString,
-  OPENAI_OUTPUT_COST_PER_1M: optionalNumberFromString,
-  TWILIO_ESTIMATED_SEGMENT_COST_USD: optionalNumberFromString
+  OPENAI_OUTPUT_COST_PER_1M: optionalNumberFromString
 }).transform(normalizeSupabasePublicKey);
 
 export type BrowserEnv = z.infer<typeof browserEnvSchema>;
@@ -85,9 +85,8 @@ export const REQUIRED_SERVER_ENV_KEYS = [
   "OPENAI_API_KEY",
   "YOUTUBE_API_KEY",
   "YOUTUBE_CHANNEL_ID",
-  "TWILIO_ACCOUNT_SID",
-  "TWILIO_AUTH_TOKEN",
   "CRON_SECRET",
+  "APP_BASE_URL",
   "DASHBOARD_PASSWORD"
 ] as const;
 
@@ -106,8 +105,8 @@ export function parseServerEnv(source: EnvSource): ServerEnv {
   if (!parsed.success) {
     throw new ConfigurationError(formatEnvError("server", parsed.error));
   }
-  if (parsed.data.ENABLE_SMS && !parsed.data.TWILIO_FROM_NUMBER && !parsed.data.TWILIO_MESSAGING_SERVICE_SID) {
-    throw new ConfigurationError("Server env is invalid: provide TWILIO_FROM_NUMBER or TWILIO_MESSAGING_SERVICE_SID.");
+  if (parsed.data.ENABLE_EMAIL && (!parsed.data.GMAIL_SMTP_USER || !parsed.data.GMAIL_APP_PASSWORD || !parsed.data.EMAIL_TO)) {
+    throw new ConfigurationError("Server env is invalid: provide GMAIL_SMTP_USER, GMAIL_APP_PASSWORD, and EMAIL_TO when ENABLE_EMAIL is true.");
   }
   return parsed.data;
 }
@@ -136,14 +135,14 @@ export function inspectEnvReadiness(source: EnvSource = process.env) {
     serverMissing,
     optional: {
       OPENAI_SUMMARY_MODEL: source.OPENAI_SUMMARY_MODEL || DEFAULT_OPENAI_MODEL,
-      ENABLE_SMS: source.ENABLE_SMS ?? "true",
+      ENABLE_EMAIL: source.ENABLE_EMAIL ?? "false",
+      EMAIL_READY: Boolean(source.GMAIL_SMTP_USER && source.GMAIL_APP_PASSWORD && source.EMAIL_TO),
       ENABLE_STT_FALLBACK: source.ENABLE_STT_FALLBACK ?? "false",
-      TWILIO_STATUS_CALLBACK_URL: Boolean(source.TWILIO_STATUS_CALLBACK_URL),
       APP_BASE_URL: Boolean(source.APP_BASE_URL),
-      TO_PHONE_NUMBER: Boolean(source.TO_PHONE_NUMBER),
+      EMAIL_FROM: Boolean(source.EMAIL_FROM),
+      EMAIL_ACTION_SECRET: Boolean(source.EMAIL_ACTION_SECRET),
       OPENAI_INPUT_COST_PER_1M: source.OPENAI_INPUT_COST_PER_1M ?? "0",
-      OPENAI_OUTPUT_COST_PER_1M: source.OPENAI_OUTPUT_COST_PER_1M ?? "0",
-      TWILIO_ESTIMATED_SEGMENT_COST_USD: source.TWILIO_ESTIMATED_SEGMENT_COST_USD ?? "0"
+      OPENAI_OUTPUT_COST_PER_1M: source.OPENAI_OUTPUT_COST_PER_1M ?? "0"
     }
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldSkipRun, smsDeliveryFingerprint, weeklyRunKey } from "@/lib/idempotency";
+import { shouldSkipRun, weeklyRunKey } from "@/lib/idempotency";
 
 describe("idempotency helpers", () => {
   it("creates stable weekly ISO run keys", () => {
@@ -11,9 +11,5 @@ describe("idempotency helpers", () => {
     expect(shouldSkipRun({ status: "skipped" })).toBe(true);
     expect(shouldSkipRun({ status: "failed" })).toBe(false);
     expect(shouldSkipRun(null)).toBe(false);
-  });
-
-  it("builds delivery fingerprints from unique constraint inputs", () => {
-    expect(smsDeliveryFingerprint("summary", "recipient")).toBe("summary:recipient");
   });
 });

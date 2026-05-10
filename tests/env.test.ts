@@ -10,12 +10,11 @@ const validEnv = {
   YOUTUBE_API_KEY: "youtube",
   YOUTUBE_CHANNEL_ID: "channel",
   YOUTUBE_CHANNEL_HANDLE: "@handle",
-  TWILIO_ACCOUNT_SID: "AC123",
-  TWILIO_AUTH_TOKEN: "token",
-  TWILIO_FROM_NUMBER: "+15555550123",
-  TO_PHONE_NUMBER: "+15555550124",
+  GMAIL_SMTP_USER: "fishbot@example.com",
+  GMAIL_APP_PASSWORD: "app-password",
+  EMAIL_TO: "evan@example.com",
   CRON_SECRET: "secret",
-  ENABLE_SMS: "true",
+  ENABLE_EMAIL: "true",
   ENABLE_STT_FALLBACK: "false",
   APP_BASE_URL: "http://localhost:3000",
   DASHBOARD_PASSWORD: "devmenu"
@@ -24,7 +23,8 @@ const validEnv = {
 describe("env parsing", () => {
   it("parses valid server env", () => {
     const parsed = parseServerEnv(validEnv);
-    expect(parsed.ENABLE_SMS).toBe(true);
+    expect(parsed.ENABLE_EMAIL).toBe(true);
+    expect(parsed.GMAIL_SMTP_HOST).toBe("smtp.gmail.com");
     expect(parsed.OPENAI_SUMMARY_MODEL).toBe("gpt-5.4-mini");
     expect(parsed.NEXT_PUBLIC_SUPABASE_ANON_KEY).toBe("publishable");
   });

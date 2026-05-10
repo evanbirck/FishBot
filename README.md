@@ -1,6 +1,6 @@
 # FishBot
 
-An internal automation system for monitoring weekly California Delta fishing reports, generating AI summaries, storing report history in Supabase, and sending SMS notifications through Twilio.
+An internal automation system for monitoring weekly California Delta fishing reports, generating AI summaries, storing report history in Supabase, and sending email notifications through Gmail SMTP.
 
 ## Tech Stack
 
@@ -10,7 +10,7 @@ An internal automation system for monitoring weekly California Delta fishing rep
 - Supabase Postgres + RLS
 - OpenAI Responses API
 - YouTube Data API
-- Twilio SMS
+- Gmail SMTP with an app password
 - Vercel Cron
 - GitHub Actions
 - Vitest
@@ -21,13 +21,11 @@ An internal automation system for monitoring weekly California Delta fishing rep
 - Deterministic and AI-assisted classification for weekly reports, optional extra uploads, and ignored uploads
 - Public YouTube transcript extraction with graceful placeholder fallback
 - In-depth AI-generated structured JSON summaries validated with Zod
-- Combined weekly SMS digest with extra upload reply options
-- Inbound SMS support for `YES 1`, `YES ALL`, `ALL`, `NO 1`, and `STOP`
-- Twilio delivery status callback handling
+- Combined weekly email digest with one-click summarize links for extra uploads
 - Supabase persistence with idempotency constraints
-- Dashboard with latest report, classification state, runs, deliveries, and settings readiness
-- Cost tracking for OpenAI token usage and SMS delivery estimates
-- Historical testing page for date-range backfills without sending SMS
+- Dashboard with latest report, classification state, runs, costs, testing, and settings readiness
+- Cost tracking for OpenAI token usage
+- Historical testing page for date-range backfills without sending email
 - Protected cron route
 - Tests and CI
 
@@ -36,11 +34,11 @@ An internal automation system for monitoring weekly California Delta fishing rep
 1. Install dependencies with `npm install`.
 2. Create a Supabase project.
 3. Run `supabase/migrations/0001_init_fishbot.sql`.
-4. If the database already exists, also run `supabase/migrations/0002_summary_cost_tracking.sql`.
+4. If the database already exists, also run `supabase/migrations/0002_summary_cost_tracking.sql` and `supabase/migrations/0003_email_digest_conversion.sql`.
 5. Optionally run `supabase/seed.sql` to seed the source channel.
 6. Create a Google Cloud project and enable the YouTube Data API.
 7. Create an OpenAI API key.
-8. Create a Twilio account and configure a sending number or Messaging Service.
+8. Enable 2-step verification on the Gmail account that will send FishBot email, then create a Gmail app password.
 9. Copy `.env.example` to `.env.local` and fill in values.
 10. Run `npm run dev`.
 11. Open `/dashboard`.
@@ -60,14 +58,15 @@ Server-only:
 - `YOUTUBE_API_KEY`
 - `YOUTUBE_CHANNEL_ID`
 - `YOUTUBE_CHANNEL_HANDLE`
-- `TWILIO_ACCOUNT_SID`
-- `TWILIO_AUTH_TOKEN`
-- `TWILIO_FROM_NUMBER`
-- `TO_PHONE_NUMBER`
-- `TWILIO_MESSAGING_SERVICE_SID`
-- `TWILIO_STATUS_CALLBACK_URL`
+- `GMAIL_SMTP_USER`
+- `GMAIL_APP_PASSWORD`
+- `GMAIL_SMTP_HOST` defaults to `smtp.gmail.com`
+- `GMAIL_SMTP_PORT` defaults to `465`
+- `EMAIL_FROM`
+- `EMAIL_TO`
+- `EMAIL_ACTION_SECRET`
 - `CRON_SECRET`
-- `ENABLE_SMS`
+- `ENABLE_EMAIL`
 - `ENABLE_STT_FALLBACK`
 - `APP_BASE_URL`
 - `DASHBOARD_PASSWORD`
@@ -78,7 +77,28 @@ Optional cost-estimate values:
 
 - `OPENAI_INPUT_COST_PER_1M`
 - `OPENAI_OUTPUT_COST_PER_1M`
-- `TWILIO_ESTIMATED_SEGMENT_COST_USD`
+
+## Gmail SMTP
+
+Use the Gmail address as `GMAIL_SMTP_USER`. Use a Gmail app password as `GMAIL_APP_PASSWORD`, not the normal account password.
+
+Recommended values:
+
+```text
+GMAIL_SMTP_HOST=smtp.gmail.com
+GMAIL_SMTP_PORT=465
+EMAIL_FROM=FishBot <your-gmail-address@gmail.com>
+EMAIL_TO=your-personal-email@gmail.com
+ENABLE_EMAIL=true
+```
+
+Extra upload emails include signed one-click links like:
+
+```text
+{APP_BASE_URL}/api/videos/{youtubeVideoId}/summarize
+```
+
+Clicking a valid link summarizes that video, stores the report, and redirects to the report detail page.
 
 ## Cron Schedule
 
@@ -91,13 +111,6 @@ This runs around Thursday 7:00 PM Pacific during daylight time because Vercel cr
 An optional Friday morning backup check can be added at `0 16 * * 5`, which is around Friday 9:00 AM Pacific. Vercel Hobby deployments can be limited on cron frequency, so the default config keeps only the Thursday evening check.
 
 ## Local Development
-
-Seed at least one source channel row with `supabase/seed.sql`. Add recipient rows only for users who have explicitly opted in:
-
-```sql
-insert into public.recipients (phone_e164, display_name, active, opt_in_confirmed)
-values ('+15555550123', 'Operations recipient', true, true);
-```
 
 Run the app:
 
@@ -115,30 +128,12 @@ Sign in at `/login` with `DASHBOARD_PASSWORD`. Use the Testing page for controll
 4. The YouTube service resolves the channel uploads playlist and fetches recent uploads.
 5. Each upload is classified as `weekly_report`, `possible_report`, `extra_upload`, or `ignored`.
 6. Only high-confidence `weekly_report` videos are summarized automatically.
-7. `possible_report` and `extra_upload` videos are listed as reply options in the weekly digest.
+7. `possible_report` and `extra_upload` videos are listed in the weekly email digest with one-click summarize links.
 8. Ignored uploads are stored and excluded from the digest unless manually handled later.
 9. Public transcript extraction runs when captions are available.
 10. Missing transcripts create a placeholder summary instead of failing the job.
 11. OpenAI returns detailed structured JSON validated by Zod.
-12. One combined weekly SMS digest is rendered and sent only to active opted-in recipients.
-13. Twilio status and inbound reply webhooks update delivery, approval, ignore, and opt-out state.
-
-## Inbound SMS
-
-Configure the Twilio phone number Incoming Message Webhook to:
-
-```text
-{APP_BASE_URL}/api/sms/inbound
-```
-
-Supported replies:
-
-- `YES 1`, `Y 1`, `SUMMARIZE 1`, `REPORT 1`
-- `ALL`, `YES ALL`, `SUMMARIZE ALL`, `REPORT ALL`
-- `NO 1`, `IGNORE 1`, `SKIP 1`
-- `STOP`
-
-Extra uploads are summarized only after an explicit valid reply or a manual dashboard action.
+12. One combined weekly email digest is rendered and sent to `EMAIL_TO`.
 
 ## Deploying to Vercel
 
@@ -147,16 +142,14 @@ Extra uploads are summarized only after an explicit valid reply or a manual dash
 3. Add all required environment variables in Vercel Project Settings.
 4. Set `APP_BASE_URL` to the deployed Vercel URL.
 5. Set `DASHBOARD_PASSWORD`.
-6. Run the Supabase migration in production.
+6. Run the Supabase migrations in production.
 7. Deploy.
 8. Confirm `/login` works.
 9. Confirm `/dashboard` redirects to `/login` when unauthenticated.
-10. Configure the Twilio phone number Incoming Message Webhook to `{APP_BASE_URL}/api/sms/inbound`.
-11. Set `TWILIO_STATUS_CALLBACK_URL` to `{APP_BASE_URL}/api/twilio/status`.
-12. Confirm Vercel Cron is enabled.
-13. Verify `/api/health` returns ready status.
+10. Confirm Vercel Cron is enabled.
+11. Verify `/api/health` returns ready status.
 
-The protected dashboard pages use an HTTP-only `delta_auth` cookie set after a correct password login. Cron and webhook routes are not protected by the dashboard cookie: `/api/cron/weekly-report` continues to require `CRON_SECRET`, while Twilio routes use their webhook-specific validation.
+The protected dashboard pages use an HTTP-only `delta_auth` cookie set after a correct password login. The cron route is not protected by the dashboard cookie; `/api/cron/weekly-report` continues to require `CRON_SECRET`. One-click email summarize links are signed with `EMAIL_ACTION_SECRET`, or `CRON_SECRET` if no separate action secret is provided.
 
 ## Testing
 
@@ -167,7 +160,7 @@ npm run test
 npm run build
 ```
 
-Tests cover scoring, classification, SMS digest formatting and splitting, inbound reply parsing, environment validation, idempotency helpers, average publish-time calculation, and summary validation. CI runs the same checks on pull requests.
+Tests cover scoring, classification, email digest formatting, signed action links, environment validation, idempotency helpers, average publish-time calculation, and summary validation. CI runs the same checks on pull requests.
 
 ## Known Limitations
 
@@ -175,16 +168,14 @@ Public YouTube transcripts may not be available for every video. In that case, t
 
 ## Roadmap
 
-- Admin authentication
 - Optional speech-to-text fallback
 - Multiple source channels
-- Recipient preferences
-- Delivery analytics by carrier and segment count
+- Email preference controls
+- Delivery audit table
 
 ## Operational Notes
 
 - `playlistItems.list` is used instead of defaulting to `search.list` because the uploads playlist is cheaper, more deterministic, and scoped to the source channel.
-- Idempotency lives in database constraints: job run keys, YouTube video IDs, one summary per video, and one delivery per summary-recipient pair.
-- Structured summary JSON is stored separately from rendered SMS text so the dashboard, analytics, and SMS channel can evolve independently.
+- Idempotency lives in database constraints: job run keys, YouTube video IDs, and one summary per video.
+- Structured summary JSON is stored separately from rendered digest text so the dashboard, analytics, and email channel can evolve independently.
 - Supabase RLS is enabled and service-role access is kept server-only.
-- SMS bodies use plain text and chunking to reduce unexpected segmentation.

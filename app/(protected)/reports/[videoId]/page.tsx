@@ -11,15 +11,15 @@ import { ignoreVideoAction, summarizeVideoAction } from "./actions";
 export const dynamic = "force-dynamic";
 
 type ReportDetailPageProps = {
-  params: {
+  params: Promise<{
     videoId: string;
-  };
+  }>;
 };
 
 export default async function ReportDetailPage({ params }: ReportDetailPageProps) {
-  const report = await getReportByVideoId(params.videoId);
+  const { videoId } = await params;
+  const report = await getReportByVideoId(videoId);
   if (!report) notFound();
-  const smsMessageCount = report.summary?.sms_text ? report.summary.sms_text.split(/\n\n+/).filter(Boolean).length : 0;
 
   return (
     <div className="page">
@@ -68,14 +68,10 @@ export default async function ReportDetailPage({ params }: ReportDetailPageProps
               <dt>Status</dt>
               <dd>{report.user_approval_status}</dd>
             </div>
-            <div>
-              <dt>SMS messages</dt>
-              <dd>{smsMessageCount}</dd>
-            </div>
           </dl>
         </Card>
-        <Card title="SMS Text">
-          <pre className="sms-preview">{report.summary?.sms_text ?? "SMS has not been rendered yet."}</pre>
+        <Card title="Email Digest Text">
+          <pre className="digest-preview">{report.summary?.digest_text ?? "Email digest has not been rendered yet."}</pre>
         </Card>
       </section>
     </div>

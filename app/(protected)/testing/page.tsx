@@ -46,7 +46,7 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
       ) : null}
 
       <div className="detail-grid">
-        <Card title="Date Range Backfill" eyebrow="No SMS is sent">
+        <Card title="Date Range Backfill" eyebrow="No email is sent">
           <form action={runHistoricalBackfillAction} className="form-grid">
             <label>
               Start date
@@ -72,7 +72,7 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
             <li>Fetches channel uploads published inside the selected date range.</li>
             <li>Classifies every upload as weekly report, possible report, extra upload, or ignored.</li>
             <li>Only summarizes high-confidence weekly reports.</li>
-            <li>Does not send SMS during historical testing.</li>
+            <li>Does not send email during historical testing.</li>
             <li>Dry run previews the classification count without storing summaries.</li>
           </ul>
         </Card>

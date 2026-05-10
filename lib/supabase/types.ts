@@ -7,7 +7,6 @@ export type ClassificationStatus = "pending" | "classified" | "failed";
 export type ClassificationConfidence = "high" | "medium" | "low";
 export type RecommendedAction = "auto_summarize" | "ask_user" | "ignore";
 export type UserApprovalStatus = "none" | "summary_available_on_request" | "user_approved" | "ignored" | "summarized";
-export type PendingVideoOptionStatus = "pending" | "approved" | "ignored" | "summarized" | "expired";
 
 export type Database = {
   public: {
@@ -34,28 +33,6 @@ export type Database = {
           last_checked_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["channels"]["Insert"]>;
-        Relationships: [];
-      };
-      recipients: {
-        Row: {
-          id: string;
-          phone_e164: string;
-          display_name: string | null;
-          active: boolean;
-          opt_in_confirmed: boolean;
-          locale: string;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          phone_e164: string;
-          display_name?: string | null;
-          active?: boolean;
-          opt_in_confirmed?: boolean;
-          locale?: string;
-          created_at?: string;
-        };
-        Update: Partial<Database["public"]["Tables"]["recipients"]["Insert"]>;
         Relationships: [];
       };
       videos: {
@@ -131,7 +108,7 @@ export type Database = {
           model: string;
           prompt_version: string;
           summary_json: Json;
-          sms_text: string;
+          digest_text: string;
           char_count: number;
           input_tokens: number | null;
           output_tokens: number | null;
@@ -147,7 +124,7 @@ export type Database = {
           model: string;
           prompt_version: string;
           summary_json: Json;
-          sms_text: string;
+          digest_text: string;
           char_count: number;
           input_tokens?: number | null;
           output_tokens?: number | null;
@@ -158,70 +135,6 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["summaries"]["Insert"]>;
-        Relationships: [];
-      };
-      sms_deliveries: {
-        Row: {
-          id: string;
-          summary_id: string | null;
-          recipient_id: string;
-          provider: string;
-          provider_message_sid: string | null;
-          status: string;
-          num_segments: number;
-          price: number | null;
-          price_unit: string | null;
-          error_code: string | null;
-          error_message: string | null;
-          sent_at: string | null;
-          delivered_at: string | null;
-          callback_payload: Json | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          summary_id?: string | null;
-          recipient_id: string;
-          provider?: string;
-          provider_message_sid?: string | null;
-          status?: string;
-          num_segments?: number;
-          price?: number | null;
-          price_unit?: string | null;
-          error_code?: string | null;
-          error_message?: string | null;
-          sent_at?: string | null;
-          delivered_at?: string | null;
-          callback_payload?: Json | null;
-          created_at?: string;
-        };
-        Update: Partial<Database["public"]["Tables"]["sms_deliveries"]["Insert"]>;
-        Relationships: [];
-      };
-      pending_video_options: {
-        Row: {
-          id: string;
-          recipient_id: string;
-          video_id: string;
-          option_number: number;
-          digest_message_id: string | null;
-          status: PendingVideoOptionStatus;
-          created_at: string;
-          responded_at: string | null;
-          response_text: string | null;
-        };
-        Insert: {
-          id?: string;
-          recipient_id: string;
-          video_id: string;
-          option_number: number;
-          digest_message_id?: string | null;
-          status?: PendingVideoOptionStatus;
-          created_at?: string;
-          responded_at?: string | null;
-          response_text?: string | null;
-        };
-        Update: Partial<Database["public"]["Tables"]["pending_video_options"]["Insert"]>;
         Relationships: [];
       };
       job_runs: {

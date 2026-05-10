@@ -1,11 +1,11 @@
-import { WEEKLY_REPORT_JOB_NAME, SMS_PROVIDER } from "@/lib/constants";
+import { WEEKLY_REPORT_JOB_NAME } from "@/lib/constants";
 import { estimateOpenAiCostUsd, roundMoney } from "@/lib/costing";
+import { formatWeeklyEmailDigest } from "@/lib/email/format-digest";
+import { sendEmail } from "@/lib/email";
 import { getServerEnv } from "@/lib/env";
 import { getErrorMessage } from "@/lib/errors";
 import { shouldSkipRun, weeklyRunKey } from "@/lib/idempotency";
 import { logger } from "@/lib/logger";
-import { formatWeeklyDigest, type ExtraUploadOption } from "@/lib/sms/format-digest";
-import { sendSmsMessages } from "@/lib/sms";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Json, Tables } from "@/lib/supabase/types";
 import { createPlaceholderSummary, getPromptVersion, reportSummarySchema, summarizeReportWithUsage } from "@/lib/summarize";
@@ -73,8 +73,7 @@ export async function runWeeklyReport(input: PipelineInput): Promise<PipelineRes
     const existingSummary = weeklyVideo ? await getExistingSummary(weeklyVideo.id) : null;
     const summary = weeklyVideo ? existingSummary ?? (await createSummaryForVideo(weeklyVideo, env)) : null;
 
-    const deliveryCount = await sendWeeklyDigestToActiveRecipients({
-      jobRunId: jobRun.run.id,
+    const deliveryCount = await sendWeeklyDigestEmail({
       weeklyVideo: weeklyVideo ?? null,
       summary,
       extraVideos,
@@ -83,12 +82,12 @@ export async function runWeeklyReport(input: PipelineInput): Promise<PipelineRes
 
     const notes = summary
       ? deliveryCount > 0
-        ? `Processed weekly report and sent ${deliveryCount} digest message set(s).`
-        : "Processed weekly report, but no active opted-in SMS recipients are configured."
+        ? "Processed weekly report and sent an email digest."
+        : "Processed weekly report, but email delivery is disabled or not configured."
       : extraVideos.length
         ? deliveryCount > 0
-          ? `No high-confidence weekly report; sent optional-summary digest for ${extraVideos.length} upload(s).`
-          : `No high-confidence weekly report; found ${extraVideos.length} optional upload(s), but no active opted-in SMS recipients are configured.`
+          ? `No high-confidence weekly report; sent email review links for ${extraVideos.length} upload(s).`
+          : `No high-confidence weekly report; found ${extraVideos.length} optional upload(s), but email delivery is disabled or not configured.`
         : "No high-confidence weekly report or new extra uploads found.";
 
     await supabase
@@ -305,7 +304,7 @@ export async function createSummaryForVideo(video: Tables<"videos">, env: Return
     model: transcript.status === "found" ? env.OPENAI_SUMMARY_MODEL : "placeholder",
     prompt_version: getPromptVersion(),
     summary_json: summaryResult.summary as unknown as Json,
-    sms_text: "",
+    digest_text: "",
     char_count: 0,
     input_tokens: summaryResult.usage?.inputTokens ?? null,
     output_tokens: summaryResult.usage?.outputTokens ?? null,
@@ -332,7 +331,7 @@ export async function createSummaryForVideo(video: Tables<"videos">, env: Return
           model: summaryInsert.model,
           prompt_version: summaryInsert.prompt_version,
           summary_json: summaryInsert.summary_json,
-          sms_text: summaryInsert.sms_text,
+          digest_text: summaryInsert.digest_text,
           char_count: summaryInsert.char_count
         },
         { onConflict: "video_id" }
@@ -354,94 +353,47 @@ export async function createSummaryForVideo(video: Tables<"videos">, env: Return
   return result.data;
 }
 
-async function sendWeeklyDigestToActiveRecipients(input: {
-  jobRunId: string;
+async function sendWeeklyDigestEmail(input: {
   weeklyVideo: Tables<"videos"> | null;
   summary: Tables<"summaries"> | null;
   extraVideos: Tables<"videos">[];
   env: ReturnType<typeof getServerEnv>;
 }) {
   const supabase = getSupabaseAdmin();
-  const recipients = await supabase
-    .from("recipients")
-    .select("*")
-    .eq("active", true)
-    .eq("opt_in_confirmed", true);
-
-  if (recipients.error) throw recipients.error;
   if (!input.summary && input.extraVideos.length === 0) return 0;
-  if (!recipients.data?.length) return 0;
+  if (!input.env.ENABLE_EMAIL) return 0;
 
-  let deliveryCount = 0;
   const weeklySummaryJson = input.summary ? reportSummarySchema.parse(input.summary.summary_json) : null;
   const reportDate = input.weeklyVideo ? new Date(input.weeklyVideo.published_at).toLocaleDateString("en-US") : null;
 
-  for (const recipient of recipients.data ?? []) {
-    const options = await createPendingOptionsForRecipient({
-      recipientId: recipient.id,
-      videos: input.extraVideos,
-      digestMessageId: input.jobRunId
-    });
+  const digest = formatWeeklyEmailDigest({
+    reportDate,
+    weeklyReport:
+      input.weeklyVideo && weeklySummaryJson
+        ? {
+            summary: weeklySummaryJson,
+            videoUrl: input.weeklyVideo.video_url
+          }
+        : null,
+    extraUploads: input.extraVideos.map((video) => ({
+      title: video.title,
+      url: video.video_url,
+      youtubeVideoId: video.youtube_video_id
+    })),
+    env: input.env
+  });
 
-    const digest = formatWeeklyDigest({
-      reportDate,
-      weeklyReport:
-        input.weeklyVideo && weeklySummaryJson
-          ? {
-              summary: weeklySummaryJson,
-              videoUrl: input.weeklyVideo.video_url
-            }
-          : null,
-      extraUploads: options.map((option) => ({
-        optionNumber: option.option_number,
-        title: option.video.title,
-        url: option.video.video_url
-      })),
-      maxChunk: 1200
-    });
-
-    if (input.summary) {
-      await supabase
-        .from("summaries")
-        .update({
-          sms_text: digest.text,
-          char_count: digest.text.length
-        })
-        .eq("id", input.summary.id);
-    }
-
-    const delivery = await supabase
-      .from("sms_deliveries")
-      .insert({
-        summary_id: input.summary?.id ?? null,
-        recipient_id: recipient.id,
-        provider: SMS_PROVIDER,
-        status: input.env.ENABLE_SMS ? "queued" : "skipped"
+  if (input.summary) {
+    await supabase
+      .from("summaries")
+      .update({
+        digest_text: digest.text,
+        char_count: digest.text.length
       })
-      .select("*")
-      .single();
-
-    if (delivery.error) {
-      if (delivery.error.code === "23505") continue;
-      throw delivery.error;
-    }
-
-    if (input.env.ENABLE_SMS) {
-      const results = await sendSmsMessages(input.env, recipient.phone_e164, digest.messages);
-      const first = results[0];
-      await supabase
-        .from("sms_deliveries")
-        .update({
-          provider_message_sid: first?.providerMessageSid ?? null,
-          status: first?.status ?? "sent",
-          num_segments: results.reduce((sum, result) => sum + result.numSegments, 0),
-          sent_at: new Date().toISOString()
-        })
-        .eq("id", delivery.data.id);
-    }
-
-    deliveryCount += 1;
+      .eq("id", input.summary.id);
   }
+
+  await sendEmail(input.env, digest);
 
   if (input.extraVideos.length) {
     await supabase
@@ -450,46 +402,5 @@ async function sendWeeklyDigestToActiveRecipients(input: {
       .in("id", input.extraVideos.map((video) => video.id));
   }
 
-  return deliveryCount;
-}
-
-async function createPendingOptionsForRecipient(input: {
-  recipientId: string;
-  videos: Tables<"videos">[];
-  digestMessageId: string;
-}): Promise<Array<Tables<"pending_video_options"> & { video: Tables<"videos"> }>> {
-  const supabase = getSupabaseAdmin();
-  if (!input.videos.length) return [];
-
-  await supabase
-    .from("pending_video_options")
-    .update({ status: "expired" })
-    .eq("recipient_id", input.recipientId)
-    .eq("status", "pending");
-
-  const created: Array<Tables<"pending_video_options"> & { video: Tables<"videos"> }> = [];
-  let optionNumber = 1;
-
-  for (const video of input.videos) {
-    const inserted = await supabase
-      .from("pending_video_options")
-      .insert({
-        recipient_id: input.recipientId,
-        video_id: video.id,
-        option_number: optionNumber,
-        digest_message_id: input.digestMessageId,
-        status: "pending"
-      })
-      .select("*")
-      .single();
-
-    if (inserted.error) {
-      if (inserted.error.code !== "23505") throw inserted.error;
-    } else {
-      created.push({ ...inserted.data, video });
-      optionNumber += 1;
-    }
-  }
-
-  return created;
+  return 1;
 }

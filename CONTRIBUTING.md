@@ -22,8 +22,8 @@ npm run build
 - Keep service boundaries typed and small.
 - Keep server-only secrets out of client components.
 - Prefer deterministic helpers for business logic, then cover them with Vitest.
-- Keep cron and SMS work idempotent; retries should not duplicate sends.
-- Do not log API keys, auth tokens, full phone numbers, or full transcripts.
+- Keep cron and email work idempotent; retries should not duplicate summaries.
+- Do not log API keys, auth tokens, app passwords, email addresses, or full transcripts.
 
 ## Database Changes
 
@@ -31,4 +31,4 @@ Add new SQL files under `supabase/migrations/` and document any manual seed data
 
 ## Security
 
-All protected API routes must validate server-side authorization. Public UI should show masked phone numbers only.
+All protected API routes must validate server-side authorization. Public one-click action routes must use signed, expiring links.

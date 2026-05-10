@@ -1,6 +1,6 @@
 import "server-only";
 
-import { estimateOpenAiCostUsd, estimateSmsCostUsd, estimateTokensFromText, roundMoney, type TokenUsage } from "@/lib/costing";
+import { estimateOpenAiCostUsd, estimateTokensFromText, roundMoney, type TokenUsage } from "@/lib/costing";
 import { getServerEnv, inspectEnvReadiness } from "@/lib/env";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { Tables } from "@/lib/supabase/types";
@@ -25,8 +25,6 @@ export type CostData = {
     outputTokens: number;
     totalTokens: number;
     openAiCostUsd: number;
-    smsSegments: number;
-    smsCostUsd: number;
     totalCostUsd: number;
   };
   rows: CostSummaryRow[];
@@ -41,8 +39,6 @@ const EMPTY_COST_DATA: CostData = {
     outputTokens: 0,
     totalTokens: 0,
     openAiCostUsd: 0,
-    smsSegments: 0,
-    smsCostUsd: 0,
     totalCostUsd: 0
   },
   rows: []
@@ -57,13 +53,12 @@ export async function getCostData(): Promise<CostData> {
   try {
     const env = getServerEnv();
     const supabase = getSupabaseAdmin();
-    const [summariesResult, videosResult, deliveriesResult] = await Promise.all([
+    const [summariesResult, videosResult] = await Promise.all([
       supabase.from("summaries").select("*").order("created_at", { ascending: false }).limit(100),
-      supabase.from("videos").select("id,title,video_url,published_at,transcript_text"),
-      supabase.from("sms_deliveries").select("num_segments,price,status")
+      supabase.from("videos").select("id,title,video_url,published_at,transcript_text")
     ]);
 
-    const error = [summariesResult.error, videosResult.error, deliveriesResult.error].find(Boolean);
+    const error = [summariesResult.error, videosResult.error].find(Boolean);
     if (error) throw error;
 
     const videosById = new Map((videosResult.data ?? []).map((video) => [video.id, video]));
@@ -94,13 +89,6 @@ export async function getCostData(): Promise<CostData> {
     const inputTokens = rows.reduce((sum, row) => sum + row.resolved_input_tokens, 0);
     const outputTokens = rows.reduce((sum, row) => sum + row.resolved_output_tokens, 0);
     const totalTokens = rows.reduce((sum, row) => sum + row.resolved_total_tokens, 0);
-    const smsSegments = (deliveriesResult.data ?? []).reduce((sum, delivery) => sum + (delivery.num_segments ?? 0), 0);
-    const smsCostUsd = roundMoney(
-      (deliveriesResult.data ?? []).reduce((sum, delivery) => {
-        if (typeof delivery.price === "number") return sum + Math.abs(delivery.price);
-        return sum + estimateSmsCostUsd(delivery.num_segments ?? 0, env.TWILIO_ESTIMATED_SEGMENT_COST_USD);
-      }, 0)
-    );
 
     return {
       error: null,
@@ -111,9 +99,7 @@ export async function getCostData(): Promise<CostData> {
         outputTokens,
         totalTokens,
         openAiCostUsd,
-        smsSegments,
-        smsCostUsd,
-        totalCostUsd: roundMoney(openAiCostUsd + smsCostUsd)
+        totalCostUsd: openAiCostUsd
       },
       rows
     };
@@ -126,7 +112,7 @@ export async function getCostData(): Promise<CostData> {
 }
 
 function estimateUsage(summary: Tables<"summaries">, transcriptText: string): TokenUsage {
-  const outputText = JSON.stringify(summary.summary_json) + "\n" + summary.sms_text;
+  const outputText = JSON.stringify(summary.summary_json) + "\n" + summary.digest_text;
   const inputTokens = estimateTokensFromText(transcriptText) + 350;
   const outputTokens = estimateTokensFromText(outputText);
   return {

@@ -11,10 +11,6 @@ export function weeklyRunKey(date = new Date()): string {
   return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
-export function smsDeliveryFingerprint(summaryId: string, recipientId: string): string {
-  return `${summaryId}:${recipientId}`;
-}
-
 function getIsoWeek(date: Date): { year: number; week: number } {
   const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = utc.getUTCDay() || 7;
