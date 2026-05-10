@@ -141,8 +141,24 @@ export async function getDashboardData(): Promise<DashboardData> {
 }
 
 export async function getReportByVideoId(videoId: string): Promise<ReportWithSummary | null> {
-  const data = await getDashboardData();
-  return data.reports.find((report) => report.youtube_video_id === videoId) ?? null;
+  if (!inspectEnvReadiness().serverReady) return null;
+
+  const supabase = getSupabaseAdmin();
+  const video = await supabase
+    .from("videos")
+    .select("*")
+    .or(`youtube_video_id.eq.${videoId},id.eq.${videoId}`)
+    .maybeSingle();
+  if (video.error) throw video.error;
+  if (!video.data) return null;
+
+  const summary = await supabase.from("summaries").select("*").eq("video_id", video.data.id).maybeSingle();
+  if (summary.error) throw summary.error;
+
+  return {
+    ...video.data,
+    summary: summary.data ? withTypedSummary(summary.data) : null
+  };
 }
 
 export async function getSettingsData() {

@@ -82,9 +82,13 @@ export async function runWeeklyReport(input: PipelineInput): Promise<PipelineRes
     });
 
     const notes = summary
-      ? `Processed weekly report and sent ${deliveryCount} digest message set(s).`
+      ? deliveryCount > 0
+        ? `Processed weekly report and sent ${deliveryCount} digest message set(s).`
+        : "Processed weekly report, but no active opted-in SMS recipients are configured."
       : extraVideos.length
-        ? `No high-confidence weekly report; sent optional-summary digest for ${extraVideos.length} upload(s).`
+        ? deliveryCount > 0
+          ? `No high-confidence weekly report; sent optional-summary digest for ${extraVideos.length} upload(s).`
+          : `No high-confidence weekly report; found ${extraVideos.length} optional upload(s), but no active opted-in SMS recipients are configured.`
         : "No high-confidence weekly report or new extra uploads found.";
 
     await supabase
@@ -366,6 +370,7 @@ async function sendWeeklyDigestToActiveRecipients(input: {
 
   if (recipients.error) throw recipients.error;
   if (!input.summary && input.extraVideos.length === 0) return 0;
+  if (!recipients.data?.length) return 0;
 
   let deliveryCount = 0;
   const weeklySummaryJson = input.summary ? reportSummarySchema.parse(input.summary.summary_json) : null;
