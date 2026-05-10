@@ -18,6 +18,7 @@ type TestingPageProps = {
     checked?: string;
     repaired?: string;
     placeholder?: string;
+    failed?: string;
   }>;
 };
 
@@ -55,7 +56,8 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
       {params.email === "failed" ? <div className="notice">Test email failed: {params.message ?? "Gmail SMTP returned an error."}</div> : null}
       {params.repair === "done" ? (
         <div className="notice">
-          Placeholder repair complete: checked {params.checked ?? "0"} weekly report(s), repaired {params.repaired ?? "0"}, still placeholder {params.placeholder ?? "0"}.
+          Placeholder repair complete: checked {params.checked ?? "0"} weekly report(s), repaired {params.repaired ?? "0"}, still placeholder {params.placeholder ?? "0"},
+          failed {params.failed ?? "0"}.{params.message ? ` Last error: ${params.message}` : ""}
         </div>
       ) : null}
 

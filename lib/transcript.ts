@@ -22,7 +22,7 @@ type TranscriptSegment = {
 
 type YoutubeTranscriptModule = {
   YoutubeTranscript: {
-    fetchTranscript(videoId: string): Promise<TranscriptSegment[]>;
+    fetchTranscript(videoId: string, config?: { fetch?: typeof fetch }): Promise<TranscriptSegment[]>;
   };
 };
 
@@ -30,7 +30,7 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
   const errors: string[] = [];
   try {
     const transcriptModule = (await import("youtube-transcript")) as unknown as YoutubeTranscriptModule;
-    const segments = await transcriptModule.YoutubeTranscript.fetchTranscript(videoId);
+    const segments = await transcriptModule.YoutubeTranscript.fetchTranscript(videoId, { fetch: fetchNoStore });
     const text = normalizeTranscript(segments);
 
     if (!text) {
@@ -67,10 +67,13 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
 
 async function fetchTranscriptFromTimedText(videoId: string): Promise<TranscriptResult> {
   const htmlResponse = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
+    cache: "no-store",
     headers: {
+      "cache-control": "no-cache",
       "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
-    }
-  });
+    },
+    next: { revalidate: 0 }
+  } as RequestInit & { next: { revalidate: number } });
   if (!htmlResponse.ok) {
     throw new Error(`YouTube watch page returned ${htmlResponse.status}.`);
   }
@@ -82,7 +85,7 @@ async function fetchTranscriptFromTimedText(videoId: string): Promise<Transcript
     throw new Error("No caption tracks were listed on the YouTube watch page.");
   }
 
-  const transcriptResponse = await fetch(track.baseUrl);
+  const transcriptResponse = await fetchNoStore(track.baseUrl);
   if (!transcriptResponse.ok) {
     throw new Error(`YouTube timedtext returned ${transcriptResponse.status}.`);
   }
@@ -168,4 +171,16 @@ function decodeEntities(value: string): string {
 
 function isCaptionTrack(value: unknown): value is CaptionTrack {
   return typeof value === "object" && value !== null && typeof (value as CaptionTrack).baseUrl === "string";
+}
+
+function fetchNoStore(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      "cache-control": "no-cache",
+      ...(init?.headers ?? {})
+    },
+    next: { revalidate: 0 }
+  } as RequestInit & { next: { revalidate: number } });
 }

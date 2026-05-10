@@ -113,20 +113,38 @@ export async function repairPlaceholderSummariesAction() {
     .select("*")
     .eq("classification", "weekly_report")
     .eq("classification_confidence", "high")
-    .eq("transcript_status", "placeholder")
     .order("published_at", { ascending: false })
-    .limit(5);
+    .limit(8);
 
   if (videos.error) throw videos.error;
 
+  const videoIds = (videos.data ?? []).map((video) => video.id);
+  const summaries = videoIds.length
+    ? await supabase.from("summaries").select("video_id,model").in("video_id", videoIds)
+    : { data: [], error: null };
+  if (summaries.error) throw summaries.error;
+
+  const summaryModelByVideoId = new Map((summaries.data ?? []).map((summary) => [summary.video_id, summary.model]));
+  const repairCandidates = (videos.data ?? []).filter((video) => {
+    const summaryModel = summaryModelByVideoId.get(video.id);
+    return video.transcript_status === "placeholder" || summaryModel === "placeholder" || !summaryModel;
+  });
+
   let repaired = 0;
   let stillPlaceholder = 0;
-  for (const video of videos.data ?? []) {
-    const summary = await createSummaryForVideo(video, env);
-    if (summary.model === "placeholder") {
-      stillPlaceholder += 1;
-    } else {
-      repaired += 1;
+  let failed = 0;
+  let failureMessage = "";
+  for (const video of repairCandidates.slice(0, 5)) {
+    try {
+      const summary = await createSummaryForVideo(video, env);
+      if (summary.model === "placeholder") {
+        stillPlaceholder += 1;
+      } else {
+        repaired += 1;
+      }
+    } catch (error) {
+      failed += 1;
+      failureMessage ||= error instanceof Error ? error.message : "Repair failed.";
     }
   }
 
@@ -137,9 +155,11 @@ export async function repairPlaceholderSummariesAction() {
 
   const params = new URLSearchParams({
     repair: "done",
-    checked: String(videos.data?.length ?? 0),
+    checked: String(repairCandidates.slice(0, 5).length),
     repaired: String(repaired),
-    placeholder: String(stillPlaceholder)
+    placeholder: String(stillPlaceholder),
+    failed: String(failed)
   });
+  if (failureMessage) params.set("message", failureMessage.slice(0, 180));
   redirect(`/testing?${params.toString()}`);
 }
