@@ -2,7 +2,7 @@ import { TestTube2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { inspectEnvReadiness } from "@/lib/env";
-import { runHistoricalBackfillAction, sendTestEmailAction } from "./actions";
+import { repairPlaceholderSummariesAction, runHistoricalBackfillAction, sendTestEmailAction } from "./actions";
 
 type TestingPageProps = {
   searchParams: Promise<{
@@ -14,6 +14,10 @@ type TestingPageProps = {
     skipped?: string;
     email?: string;
     message?: string;
+    repair?: string;
+    checked?: string;
+    repaired?: string;
+    placeholder?: string;
   }>;
 };
 
@@ -49,6 +53,11 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
       {params.email === "sent" ? <div className="notice">Test email sent. Check your inbox and spam folder.</div> : null}
       {params.email === "skipped" ? <div className="notice">Email is disabled. Set ENABLE_EMAIL=true and redeploy.</div> : null}
       {params.email === "failed" ? <div className="notice">Test email failed: {params.message ?? "Gmail SMTP returned an error."}</div> : null}
+      {params.repair === "done" ? (
+        <div className="notice">
+          Placeholder repair complete: checked {params.checked ?? "0"} weekly report(s), repaired {params.repaired ?? "0"}, still placeholder {params.placeholder ?? "0"}.
+        </div>
+      ) : null}
 
       <div className="detail-grid">
         <Card title="Date Range Backfill" eyebrow="No email is sent">
@@ -87,6 +96,17 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
             <p className="muted">Sends one test email to the configured recipient and records the result in Email Deliveries.</p>
             <Button type="submit" disabled={disabled} title={disabled ? "Configure server environment first" : "Send a Gmail SMTP test email"}>
               Send test email
+            </Button>
+          </form>
+        </Card>
+
+        <Card title="Repair Placeholder Reports" eyebrow="Transcript retry">
+          <form action={repairPlaceholderSummariesAction} className="form-grid">
+            <p className="muted">
+              Retries up to five high-confidence weekly reports currently marked placeholder and replaces them with real summaries when transcripts are available.
+            </p>
+            <Button type="submit" disabled={disabled} title={disabled ? "Configure server environment first" : "Retry transcript fetching and summarization"}>
+              Repair placeholders
             </Button>
           </form>
         </Card>

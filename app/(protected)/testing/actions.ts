@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { sendEmail } from "@/lib/email";
 import { getServerEnv, inspectEnvReadiness } from "@/lib/env";
 import { runHistoricalBackfill } from "@/lib/backfill";
+import { createSummaryForVideo } from "@/lib/pipeline";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export async function runHistoricalBackfillAction(formData: FormData) {
@@ -96,5 +97,49 @@ export async function sendTestEmailAction() {
 
   revalidatePath("/testing");
   revalidatePath("/dashboard");
+  redirect(`/testing?${params.toString()}`);
+}
+
+export async function repairPlaceholderSummariesAction() {
+  const readiness = inspectEnvReadiness();
+  if (!readiness.serverReady) {
+    throw new Error(`Placeholder repair is unavailable until required server environment variables are configured: ${readiness.serverMissing.join(", ")}`);
+  }
+
+  const env = getServerEnv();
+  const supabase = getSupabaseAdmin();
+  const videos = await supabase
+    .from("videos")
+    .select("*")
+    .eq("classification", "weekly_report")
+    .eq("classification_confidence", "high")
+    .eq("transcript_status", "placeholder")
+    .order("published_at", { ascending: false })
+    .limit(5);
+
+  if (videos.error) throw videos.error;
+
+  let repaired = 0;
+  let stillPlaceholder = 0;
+  for (const video of videos.data ?? []) {
+    const summary = await createSummaryForVideo(video, env);
+    if (summary.model === "placeholder") {
+      stillPlaceholder += 1;
+    } else {
+      repaired += 1;
+    }
+  }
+
+  revalidatePath("/testing");
+  revalidatePath("/dashboard");
+  revalidatePath("/reports");
+  revalidatePath("/costs");
+
+  const params = new URLSearchParams({
+    repair: "done",
+    checked: String(videos.data?.length ?? 0),
+    repaired: String(repaired),
+    placeholder: String(stillPlaceholder)
+  });
   redirect(`/testing?${params.toString()}`);
 }
