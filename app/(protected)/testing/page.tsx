@@ -2,7 +2,7 @@ import { TestTube2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { inspectEnvReadiness } from "@/lib/env";
-import { runHistoricalBackfillAction } from "./actions";
+import { runHistoricalBackfillAction, sendTestEmailAction } from "./actions";
 
 type TestingPageProps = {
   searchParams: Promise<{
@@ -12,6 +12,8 @@ type TestingPageProps = {
     weekly?: string;
     summarized?: string;
     skipped?: string;
+    email?: string;
+    message?: string;
   }>;
 };
 
@@ -44,6 +46,9 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
           summarized {params.summarized ?? "0"}, skipped {params.skipped ?? "0"} existing.
         </div>
       ) : null}
+      {params.email === "sent" ? <div className="notice">Test email sent. Check your inbox and spam folder.</div> : null}
+      {params.email === "skipped" ? <div className="notice">Email is disabled. Set ENABLE_EMAIL=true and redeploy.</div> : null}
+      {params.email === "failed" ? <div className="notice">Test email failed: {params.message ?? "Gmail SMTP returned an error."}</div> : null}
 
       <div className="detail-grid">
         <Card title="Date Range Backfill" eyebrow="No email is sent">
@@ -75,6 +80,15 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
             <li>Does not send email during historical testing.</li>
             <li>Dry run previews the classification count without storing summaries.</li>
           </ul>
+        </Card>
+
+        <Card title="Email Test" eyebrow="Gmail SMTP">
+          <form action={sendTestEmailAction} className="form-grid">
+            <p className="muted">Sends one test email to the configured recipient and records the result in Email Deliveries.</p>
+            <Button type="submit" disabled={disabled} title={disabled ? "Configure server environment first" : "Send a Gmail SMTP test email"}>
+              Send test email
+            </Button>
+          </form>
         </Card>
       </div>
     </div>
