@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifySummarizeLink } from "@/lib/email/action-links";
 import { getServerEnv } from "@/lib/env";
 import { getErrorMessage } from "@/lib/errors";
-import { createSummaryForVideo } from "@/lib/pipeline";
+import { createSummaryForVideo, MissingTranscriptError } from "@/lib/pipeline";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -39,13 +39,19 @@ export async function GET(request: NextRequest, { params }: SummarizeRouteProps)
         .from("videos")
         .update({ user_approval_status: "user_approved", approved_at: new Date().toISOString() })
         .eq("id", video.data.id);
-      await createSummaryForVideo(video.data, env);
+      await createSummaryForVideo(video.data, env, { storePlaceholder: false });
     }
 
     const redirectUrl = new URL(`/reports/${encodeURIComponent(video.data.youtube_video_id)}`, env.APP_BASE_URL);
     redirectUrl.searchParams.set("summarized", "1");
     return NextResponse.redirect(redirectUrl);
   } catch (error) {
+    if (error instanceof MissingTranscriptError) {
+      const redirectUrl = new URL(`/reports/${encodeURIComponent(video.data.youtube_video_id)}`, env.APP_BASE_URL);
+      redirectUrl.searchParams.set("summary", "missing");
+      redirectUrl.searchParams.set("message", getErrorMessage(error).slice(0, 180));
+      return NextResponse.redirect(redirectUrl);
+    }
     return NextResponse.json({ ok: false, error: getErrorMessage(error) }, { status: 500 });
   }
 }

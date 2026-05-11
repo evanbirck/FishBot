@@ -3,14 +3,14 @@ import { createHash } from "node:crypto";
 export type TranscriptResult =
   | {
       status: "found";
-      source: "youtube-transcript" | "youtube-timedtext";
+      source: "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
       language: string | null;
       text: string;
       hash: string;
     }
   | {
       status: "missing";
-      source: "youtube-transcript" | "youtube-timedtext";
+      source: "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
       reason: string;
     };
 
@@ -58,9 +58,15 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
     errors.push(error instanceof Error ? error.message : "YouTube timedtext captions were unavailable.");
   }
 
+  try {
+    return await fetchTranscriptFromTranscriptPanel(videoId);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : "YouTube transcript panel captions were unavailable.");
+  }
+
   return {
     status: "missing",
-    source: "youtube-timedtext",
+    source: "youtube-transcript-panel",
     reason: errors.join(" ")
   };
 }
@@ -85,15 +91,20 @@ async function fetchTranscriptFromTimedText(videoId: string): Promise<Transcript
     throw new Error("No caption tracks were listed on the YouTube watch page.");
   }
 
-  const transcriptResponse = await fetchNoStore(track.baseUrl);
+  const transcriptResponse = await fetchNoStore(withTranscriptFormat(track.baseUrl, "json3"), {
+    headers: {
+      referer: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+      "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
+    }
+  });
   if (!transcriptResponse.ok) {
     throw new Error(`YouTube timedtext returned ${transcriptResponse.status}.`);
   }
 
-  const xml = await transcriptResponse.text();
-  const text = normalizeTimedTextXml(xml);
+  const body = await transcriptResponse.text();
+  const text = normalizeTimedTextBody(body);
   if (!text) {
-    throw new Error("YouTube timedtext returned no readable text.");
+    throw new Error("YouTube listed captions but returned an empty timedtext body.");
   }
 
   return {
@@ -103,6 +114,72 @@ async function fetchTranscriptFromTimedText(videoId: string): Promise<Transcript
     text,
     hash: createHash("sha256").update(text).digest("hex")
   };
+}
+
+async function fetchTranscriptFromTranscriptPanel(videoId: string): Promise<TranscriptResult> {
+  const htmlResponse = await fetchWatchPage(videoId);
+  const html = await htmlResponse.text();
+  const apiKey = extractQuotedValue(html, "INNERTUBE_API_KEY");
+  const clientVersion = extractQuotedValue(html, "INNERTUBE_CLIENT_VERSION");
+  const visitorData = extractQuotedValue(html, "VISITOR_DATA");
+  const params = extractTranscriptPanelParams(html);
+
+  if (!apiKey || !clientVersion || !params) {
+    throw new Error("YouTube transcript panel metadata was not available on the watch page.");
+  }
+
+  const response = await fetchNoStore(`https://www.youtube.com/youtubei/v1/get_transcript?key=${encodeURIComponent(apiKey)}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://www.youtube.com",
+      referer: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+      "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
+    },
+    body: JSON.stringify({
+      context: {
+        client: {
+          clientName: "WEB",
+          clientVersion,
+          hl: "en",
+          gl: "US",
+          visitorData
+        }
+      },
+      params
+    })
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    const message = extractYouTubeErrorMessage(payload) ?? `YouTube transcript panel returned ${response.status}.`;
+    throw new Error(message);
+  }
+
+  const text = normalizeTranscriptPanelPayload(payload);
+  if (!text) {
+    throw new Error("YouTube transcript panel returned no readable text.");
+  }
+
+  return {
+    status: "found",
+    source: "youtube-transcript-panel",
+    language: "en",
+    text,
+    hash: createHash("sha256").update(text).digest("hex")
+  };
+}
+
+function fetchWatchPage(videoId: string): Promise<Response> {
+  return fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
+    cache: "no-store",
+    headers: {
+      "accept-language": "en-US,en;q=0.9",
+      "cache-control": "no-cache",
+      "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
+    },
+    next: { revalidate: 0 }
+  } as RequestInit & { next: { revalidate: number } });
 }
 export function normalizeTranscript(segments: TranscriptSegment[]): string {
   return segments
@@ -138,6 +215,22 @@ function extractCaptionTracks(html: string): CaptionTrack[] {
   }
 }
 
+function extractTranscriptPanelParams(html: string): string | null {
+  const match = html.match(/"getTranscriptEndpoint":\{"params":"([^"]+)"/);
+  if (!match?.[1]) return null;
+
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+function extractQuotedValue(html: string, key: string): string | null {
+  const match = html.match(new RegExp(`"${key}":"([^"]+)"`));
+  return match?.[1] ?? null;
+}
+
 function chooseCaptionTrack(tracks: CaptionTrack[]): CaptionTrack | null {
   return (
     tracks.find((track) => track.languageCode?.toLowerCase().startsWith("en") && track.kind !== "asr") ??
@@ -145,6 +238,37 @@ function chooseCaptionTrack(tracks: CaptionTrack[]): CaptionTrack | null {
     tracks[0] ??
     null
   );
+}
+
+function normalizeTimedTextBody(body: string): string {
+  const jsonText = normalizeTimedTextJson(body);
+  if (jsonText) return jsonText;
+  return normalizeTimedTextXml(body);
+}
+
+function normalizeTimedTextJson(body: string): string {
+  try {
+    const payload = JSON.parse(body) as unknown;
+    const events = typeof payload === "object" && payload !== null ? (payload as { events?: unknown }).events : null;
+    if (!Array.isArray(events)) return "";
+
+    return events
+      .flatMap((event) => {
+        const segments = typeof event === "object" && event !== null ? (event as { segs?: unknown }).segs : null;
+        if (!Array.isArray(segments)) return [];
+        return segments.flatMap((segment) => {
+          const text = typeof segment === "object" && segment !== null ? (segment as { utf8?: unknown }).utf8 : null;
+          return typeof text === "string" ? [text] : [];
+        });
+      })
+      .map((text) => text.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return "";
+  }
 }
 
 function normalizeTimedTextXml(xml: string): string {
@@ -155,6 +279,61 @@ function normalizeTimedTextXml(xml: string): string {
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeTranscriptPanelPayload(payload: unknown): string {
+  const texts: string[] = [];
+  collectTranscriptPanelText(payload, texts);
+  return texts
+    .map((text) => text.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectTranscriptPanelText(value: unknown, texts: string[]): void {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectTranscriptPanelText(item, texts));
+    return;
+  }
+
+  if (typeof value !== "object" || value === null) return;
+  const object = value as Record<string, unknown>;
+  const segment = object.transcriptSegmentRenderer;
+  if (typeof segment === "object" && segment !== null) {
+    const snippet = (segment as { snippet?: unknown }).snippet;
+    texts.push(...runsToText(snippet));
+  }
+
+  Object.values(object).forEach((item) => collectTranscriptPanelText(item, texts));
+}
+
+function runsToText(value: unknown): string[] {
+  if (typeof value !== "object" || value === null) return [];
+  const object = value as { simpleText?: unknown; runs?: unknown };
+  if (typeof object.simpleText === "string") return [object.simpleText];
+  if (!Array.isArray(object.runs)) return [];
+
+  return object.runs.flatMap((run) => {
+    if (typeof run !== "object" || run === null) return [];
+    const text = (run as { text?: unknown }).text;
+    return typeof text === "string" ? [text] : [];
+  });
+}
+
+function extractYouTubeErrorMessage(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const error = (payload as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) return null;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" ? `YouTube transcript panel returned: ${message}` : null;
+}
+
+function withTranscriptFormat(baseUrl: string, format: string): string {
+  const url = new URL(baseUrl);
+  url.searchParams.set("fmt", format);
+  return url.toString();
 }
 
 function decodeEntities(value: string): string {

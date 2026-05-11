@@ -46,6 +46,9 @@ export default async function ReportDetailPage({ params, searchParams }: ReportD
       {notice.summary === "placeholder" ? (
         <div className="notice">Transcript still was not available, so FishBot kept the fallback placeholder.</div>
       ) : null}
+      {notice.summary === "missing" ? (
+        <div className="notice">No public transcript or captions were available, so FishBot did not generate a summary.</div>
+      ) : null}
       {notice.summary === "failed" ? <div className="notice">Summary failed: {notice.message ?? "OpenAI or transcript processing returned an error."}</div> : null}
       {notice.email === "sent" ? <div className="notice">Report email sent.</div> : null}
       {notice.email === "skipped" ? <div className="notice">Email is disabled. Set ENABLE_EMAIL=true and redeploy.</div> : null}
@@ -53,12 +56,13 @@ export default async function ReportDetailPage({ params, searchParams }: ReportD
 
       <section className="detail-grid">
         <Card title="Summary" action={<Badge tone={statusTone(report.transcript_status)}>{report.transcript_status}</Badge>}>
-          {report.summary ? <SummaryViewer summary={report.summary.summary_json_typed} /> : <p className="muted">Summary pending.</p>}
-          {report.transcript_status === "placeholder" ? (
+          {report.summary && !isPlaceholderSummary ? (
+            <SummaryViewer summary={report.summary.summary_json_typed} />
+          ) : (
             <p className="muted">
-              This is a fallback summary because automated caption download did not return usable transcript text.
+              No real summary has been generated yet. FishBot needs a usable public transcript before it can summarize this video.
             </p>
-          ) : null}
+          )}
         </Card>
         <Card title="Manual Actions">
           <div className="button-row">
@@ -98,7 +102,9 @@ export default async function ReportDetailPage({ params, searchParams }: ReportD
           </dl>
         </Card>
         <Card title="Email Preview">
-          <pre className="digest-preview">{report.summary?.digest_text ?? "Email digest has not been rendered yet."}</pre>
+          <pre className="digest-preview">
+            {report.summary && !isPlaceholderSummary ? report.summary.digest_text : "Email preview appears after a real summary is generated."}
+          </pre>
         </Card>
       </section>
     </div>

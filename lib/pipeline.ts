@@ -33,6 +33,13 @@ type ClassifiedCandidate = YouTubeVideoCandidate & {
   classification: VideoClassification;
 };
 
+export class MissingTranscriptError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MissingTranscriptError";
+  }
+}
+
 export async function runWeeklyReport(input: PipelineInput): Promise<PipelineResult> {
   const env = getServerEnv();
   const supabase = getSupabaseAdmin();
@@ -246,7 +253,7 @@ export async function prefetchTranscriptForVideo(video: Tables<"videos">) {
   if (video.transcript_status === "found" && video.transcript_text && video.transcript_text.length > 100) {
     return {
       status: "found" as const,
-      source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | null) ?? "youtube-transcript",
+      source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | null) ?? "youtube-transcript",
       language: video.transcript_language,
       text: video.transcript_text,
       hash: video.transcript_hash ?? createHash("sha256").update(video.transcript_text).digest("hex")
@@ -258,18 +265,34 @@ export async function prefetchTranscriptForVideo(video: Tables<"videos">) {
   return transcript;
 }
 
-export async function createSummaryForVideo(video: Tables<"videos">, env: ReturnType<typeof getServerEnv>) {
+export async function createSummaryForVideo(
+  video: Tables<"videos">,
+  env: ReturnType<typeof getServerEnv>,
+  options: { storePlaceholder?: boolean } = {}
+) {
   const supabase = getSupabaseAdmin();
   const transcript =
     video.transcript_status === "found" && video.transcript_text && video.transcript_text.length > 100
       ? {
           status: "found" as const,
-          source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | null) ?? "youtube-transcript",
+          source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | null) ?? "youtube-transcript",
           language: video.transcript_language,
           text: video.transcript_text,
           hash: video.transcript_hash ?? createHash("sha256").update(video.transcript_text).digest("hex")
         }
       : await fetchTranscript(video.youtube_video_id);
+
+  if (transcript.status !== "found" && options.storePlaceholder === false) {
+    await storeTranscriptForVideo(video.id, transcript, "missing");
+    await supabase
+      .from("videos")
+      .update({
+        user_approval_status: video.user_approval_status === "ignored" ? "ignored" : "summary_available_on_request",
+        summarized_at: null
+      })
+      .eq("id", video.id);
+    throw new MissingTranscriptError(transcript.reason);
+  }
 
   await storeTranscriptForVideo(video.id, transcript, transcript.status === "found" ? "found" : "placeholder");
 

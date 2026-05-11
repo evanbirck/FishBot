@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { sendEmail } from "@/lib/email";
 import { formatRequestedVideoEmail } from "@/lib/email/format-digest";
 import { getServerEnv } from "@/lib/env";
-import { createSummaryForVideo } from "@/lib/pipeline";
+import { createSummaryForVideo, MissingTranscriptError } from "@/lib/pipeline";
 import { reportSummarySchema } from "@/lib/summarize";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -21,13 +21,13 @@ export async function summarizeVideoAction(videoId: string) {
       .from("videos")
       .update({ user_approval_status: "user_approved", approved_at: new Date().toISOString() })
       .eq("id", video.data.id);
-    const summary = await createSummaryForVideo(video.data, env);
+    const summary = await createSummaryForVideo(video.data, env, { storePlaceholder: false });
     params = new URLSearchParams({
       summary: summary.model === "placeholder" ? "placeholder" : "done"
     });
   } catch (error) {
     params = new URLSearchParams({
-      summary: "failed",
+      summary: error instanceof MissingTranscriptError ? "missing" : "failed",
       message: getActionErrorMessage(error)
     });
   }
