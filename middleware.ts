@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticatedRequest } from "@/lib/auth/session";
 import { copyResponseCookies, updateSupabaseSession } from "@/utils/supabase/middleware";
 
-const protectedPrefixes = ["/dashboard", "/reports", "/settings", "/runs", "/costs", "/testing"];
+const protectedPrefixes = ["/dashboard", "/reports", "/settings", "/runs", "/costs", "/testing", "/api/manual"];
 
 export async function middleware(request: NextRequest) {
   const supabaseResponse = await updateSupabaseSession(request);

@@ -2,7 +2,7 @@ import { TestTube2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { inspectEnvReadiness } from "@/lib/env";
-import { emailSelectedWeekAction, repairPlaceholderSummariesAction, runHistoricalBackfillAction, sendTestEmailAction } from "./actions";
+import { emailSelectedWeekAction, repairPlaceholderSummariesAction, runHistoricalBackfillAction, sendTestEmailAction, testTranscriptAction } from "./actions";
 
 type TestingPageProps = {
   searchParams: Promise<{
@@ -22,6 +22,11 @@ type TestingPageProps = {
     weekEmail?: string;
     uploads?: string;
     extras?: string;
+    transcript?: string;
+    source?: string;
+    length?: string;
+    preview?: string;
+    videoId?: string;
   }>;
 };
 
@@ -66,6 +71,16 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
       {params.weekEmail === "skipped" ? <div className="notice">Weekly test email was skipped because email is disabled.</div> : null}
       {params.weekEmail === "empty" ? <div className="notice">No weekly report or extra uploads needed email for that week.</div> : null}
       {params.weekEmail === "failed" ? <div className="notice">Weekly test email failed: {params.message ?? "Gmail SMTP returned an error."}</div> : null}
+      {params.transcript === "found" ? (
+        <div className="notice">
+          Transcript found for {params.videoId}: {params.length ?? "0"} characters from {params.source}. Preview: {params.preview}
+        </div>
+      ) : null}
+      {params.transcript === "missing" || params.transcript === "failed" ? (
+        <div className="notice">
+          Transcript test failed for {params.videoId ?? "that video"}: {params.message ?? "No usable transcript text was returned."}
+        </div>
+      ) : null}
       {params.repair === "done" ? (
         <div className="notice">
           Placeholder repair complete: checked {params.checked ?? "0"} weekly report(s), repaired {params.repaired ?? "0"}, still placeholder {params.placeholder ?? "0"},
@@ -125,6 +140,19 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
             <p className="muted">Sends one test email to the configured recipient and records the result in Email Deliveries.</p>
             <Button type="submit" disabled={disabled} title={disabled ? "Configure server environment first" : "Send a Gmail SMTP test email"}>
               Send test email
+            </Button>
+          </form>
+        </Card>
+
+        <Card title="Transcript Test" eyebrow="YouTube captions">
+          <form action={testTranscriptAction} className="form-grid">
+            <label>
+              YouTube video ID
+              <input type="text" name="videoId" placeholder="nwhiFY3oFfI" required />
+            </label>
+            <p className="muted">Checks the same transcript extractor used by summaries and shows the exact result from this server.</p>
+            <Button type="submit" disabled={disabled} title={disabled ? "Configure server environment first" : "Test transcript extraction"}>
+              Test transcript
             </Button>
           </form>
         </Card>

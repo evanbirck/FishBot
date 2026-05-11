@@ -10,6 +10,7 @@ import { createSummaryForVideo, getExistingSummary, prefetchTranscriptForVideo, 
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { reportSummarySchema } from "@/lib/summarize";
 import type { Tables } from "@/lib/supabase/types";
+import { fetchTranscript } from "@/lib/transcript";
 import { classifyVideoForReport, type VideoClassification } from "@/lib/youtube/classify-video";
 import { fetchUploadsInDateRange, resolveUploadsPlaylist, type YouTubeVideoCandidate } from "@/lib/youtube";
 
@@ -102,6 +103,32 @@ export async function sendTestEmailAction() {
 
   revalidatePath("/testing");
   revalidatePath("/dashboard");
+  redirect(`/testing?${params.toString()}`);
+}
+
+export async function testTranscriptAction(formData: FormData) {
+  const videoId = String(formData.get("videoId") ?? "").trim();
+  if (!videoId) {
+    redirect("/testing?transcript=failed&message=Enter%20a%20YouTube%20video%20ID.");
+  }
+
+  const params = new URLSearchParams({ videoId });
+  try {
+    const result = await fetchTranscript(videoId);
+    params.set("transcript", result.status);
+    params.set("source", result.source);
+    if (result.status === "found") {
+      params.set("length", String(result.text.length));
+      params.set("preview", result.text.slice(0, 180));
+    } else {
+      params.set("message", result.reason.slice(0, 220));
+    }
+  } catch (error) {
+    params.set("transcript", "failed");
+    params.set("message", (error instanceof Error ? error.message : "Transcript test failed.").slice(0, 220));
+  }
+
+  revalidatePath("/testing");
   redirect(`/testing?${params.toString()}`);
 }
 

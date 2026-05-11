@@ -80,4 +80,12 @@ describe("dashboard authentication", () => {
     expect(summarize.headers.get("x-middleware-next")).toBe("1");
   });
 
+  it("protects manual diagnostic API routes", async () => {
+    vi.stubEnv("DASHBOARD_PASSWORD", "devmenu");
+    const response = await middleware(new NextRequest("http://localhost/api/manual/transcript?videoId=abc"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain("/login");
+  });
+
 });
