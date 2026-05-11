@@ -35,6 +35,46 @@ describe("fetchTranscript", () => {
     vi.unstubAllGlobals();
   });
 
+  it("reads caption tracks from ytInitialPlayerResponse and retries timedtext formats", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const value = String(url);
+        calls.push(value);
+        if (value.includes("watch?v=player-video")) {
+          return new Response(
+            String.raw`ytInitialPlayerResponse = {"captions":{"playerCaptionsTracklistRenderer":{"captionTracks":[{"baseUrl":"https://example.com/timedtext?v=player-video","languageCode":"en","kind":"asr"}]}}};`,
+            { status: 200 }
+          );
+        }
+
+        if (value.includes("timedtext") && value.includes("fmt=json3")) {
+          return new Response("", { status: 200 });
+        }
+
+        if (value.includes("timedtext") && value.includes("fmt=srv3")) {
+          return new Response("<transcript><text start=\"0\" dur=\"1\">Fallback caption text</text></transcript>", {
+            status: 200
+          });
+        }
+
+        return new Response("", { status: 404 });
+      })
+    );
+
+    const result = await fetchTranscript("player-video");
+
+    expect(result.status).toBe("found");
+    expect(calls.some((call) => call.includes("fmt=json3"))).toBe(true);
+    expect(calls.some((call) => call.includes("fmt=srv3"))).toBe(true);
+    if (result.status === "found") {
+      expect(result.text).toContain("Fallback caption text");
+    }
+
+    vi.unstubAllGlobals();
+  });
+
   it("falls back to the YouTube transcript panel when timedtext is empty", async () => {
     vi.stubGlobal(
       "fetch",

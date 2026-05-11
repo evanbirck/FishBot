@@ -26,6 +26,14 @@ type YoutubeTranscriptModule = {
   };
 };
 
+const WATCH_URL = "https://www.youtube.com/watch";
+const TRANSCRIPT_USER_AGENTS = [
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  "Mozilla/5.0 FishBot transcript fetcher"
+];
+const TIMEDTEXT_FORMATS = ["json3", "srv3", "ttml", "vtt", ""];
+
 export async function fetchTranscript(videoId: string): Promise<TranscriptResult> {
   const errors: string[] = [];
   try {
@@ -72,14 +80,7 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
 }
 
 async function fetchTranscriptFromTimedText(videoId: string): Promise<TranscriptResult> {
-  const htmlResponse = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
-    cache: "no-store",
-    headers: {
-      "cache-control": "no-cache",
-      "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
-    },
-    next: { revalidate: 0 }
-  } as RequestInit & { next: { revalidate: number } });
+  const htmlResponse = await fetchWatchPage(videoId);
   if (!htmlResponse.ok) {
     throw new Error(`YouTube watch page returned ${htmlResponse.status}.`);
   }
@@ -91,29 +92,44 @@ async function fetchTranscriptFromTimedText(videoId: string): Promise<Transcript
     throw new Error("No caption tracks were listed on the YouTube watch page.");
   }
 
-  const transcriptResponse = await fetchNoStore(withTranscriptFormat(track.baseUrl, "json3"), {
-    headers: {
-      referer: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
-      "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
-    }
-  });
-  if (!transcriptResponse.ok) {
-    throw new Error(`YouTube timedtext returned ${transcriptResponse.status}.`);
-  }
-
-  const body = await transcriptResponse.text();
-  const text = normalizeTimedTextBody(body);
-  if (!text) {
-    throw new Error("YouTube listed captions but returned an empty timedtext body.");
-  }
-
+  const transcript = await fetchTimedTextFromTracks(captionTracks, videoId);
   return {
     status: "found",
     source: "youtube-timedtext",
-    language: track.languageCode ?? null,
-    text,
-    hash: createHash("sha256").update(text).digest("hex")
+    language: transcript.language,
+    text: transcript.text,
+    hash: createHash("sha256").update(transcript.text).digest("hex")
   };
+}
+
+async function fetchTimedTextFromTracks(tracks: CaptionTrack[], videoId: string): Promise<{ text: string; language: string | null }> {
+  const orderedTracks = orderCaptionTracks(tracks);
+  const failures: string[] = [];
+
+  for (const track of orderedTracks) {
+    for (const format of TIMEDTEXT_FORMATS) {
+      const url = format ? withTranscriptFormat(track.baseUrl, format) : track.baseUrl;
+      const response = await fetchNoStoreWithRetry(url, {
+        headers: {
+          accept: format === "json3" ? "application/json,text/plain,*/*" : "text/plain,text/html,*/*",
+          referer: `${WATCH_URL}?v=${encodeURIComponent(videoId)}`,
+          "user-agent": TRANSCRIPT_USER_AGENTS[0]
+        }
+      });
+
+      if (!response.ok) {
+        failures.push(`${track.languageCode ?? "unknown"}/${format || "default"} returned ${response.status}`);
+        continue;
+      }
+
+      const body = await response.text();
+      const text = normalizeTimedTextBody(body);
+      if (text) return { text, language: track.languageCode ?? null };
+      failures.push(`${track.languageCode ?? "unknown"}/${format || "default"} returned empty text`);
+    }
+  }
+
+  throw new Error(`YouTube listed captions but timedtext did not return usable text. ${failures.slice(0, 6).join("; ")}`);
 }
 
 async function fetchTranscriptFromTranscriptPanel(videoId: string): Promise<TranscriptResult> {
@@ -128,58 +144,65 @@ async function fetchTranscriptFromTranscriptPanel(videoId: string): Promise<Tran
     throw new Error("YouTube transcript panel metadata was not available on the watch page.");
   }
 
-  const response = await fetchNoStore(`https://www.youtube.com/youtubei/v1/get_transcript?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      origin: "https://www.youtube.com",
-      referer: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
-      "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
-    },
-    body: JSON.stringify({
-      context: {
-        client: {
-          clientName: "WEB",
-          clientVersion,
-          hl: "en",
-          gl: "US",
-          visitorData
-        }
+  const paramVariants = Array.from(new Set([params, safeDecodeURIComponent(params)]));
+  const failures: string[] = [];
+  for (const transcriptParams of paramVariants) {
+    const response = await fetchNoStoreWithRetry(`https://www.youtube.com/youtubei/v1/get_transcript?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://www.youtube.com",
+        referer: `${WATCH_URL}?v=${encodeURIComponent(videoId)}`,
+        "user-agent": TRANSCRIPT_USER_AGENTS[0],
+        "x-goog-visitor-id": visitorData ?? "",
+        "x-youtube-client-name": "1",
+        "x-youtube-client-version": clientVersion
       },
-      params
-    })
-  });
+      body: JSON.stringify({
+        context: {
+          client: {
+            clientName: "WEB",
+            clientVersion,
+            hl: "en",
+            gl: "US",
+            visitorData
+          }
+        },
+        params: transcriptParams
+      })
+    });
 
-  const payload = (await response.json().catch(() => null)) as unknown;
-  if (!response.ok) {
-    const message = extractYouTubeErrorMessage(payload) ?? `YouTube transcript panel returned ${response.status}.`;
-    throw new Error(message);
+    const payload = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      failures.push(extractYouTubeErrorMessage(payload) ?? `YouTube transcript panel returned ${response.status}.`);
+      continue;
+    }
+
+    const text = normalizeTranscriptPanelPayload(payload);
+    if (text) {
+      return {
+        status: "found",
+        source: "youtube-transcript-panel",
+        language: "en",
+        text,
+        hash: createHash("sha256").update(text).digest("hex")
+      };
+    }
+
+    failures.push("YouTube transcript panel returned no readable text.");
   }
 
-  const text = normalizeTranscriptPanelPayload(payload);
-  if (!text) {
-    throw new Error("YouTube transcript panel returned no readable text.");
-  }
-
-  return {
-    status: "found",
-    source: "youtube-transcript-panel",
-    language: "en",
-    text,
-    hash: createHash("sha256").update(text).digest("hex")
-  };
+  throw new Error(failures.join(" "));
 }
 
 function fetchWatchPage(videoId: string): Promise<Response> {
-  return fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
-    cache: "no-store",
+  return fetchNoStoreWithRetry(`${WATCH_URL}?v=${encodeURIComponent(videoId)}`, {
     headers: {
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "accept-language": "en-US,en;q=0.9",
-      "cache-control": "no-cache",
-      "user-agent": "Mozilla/5.0 FishBot transcript fetcher"
-    },
-    next: { revalidate: 0 }
-  } as RequestInit & { next: { revalidate: number } });
+      "user-agent": TRANSCRIPT_USER_AGENTS[0]
+    }
+  });
 }
 export function normalizeTranscript(segments: TranscriptSegment[]): string {
   return segments
@@ -201,6 +224,9 @@ type CaptionTrack = {
 };
 
 function extractCaptionTracks(html: string): CaptionTrack[] {
+  const playerResponseTracks = extractCaptionTracksFromPlayerResponse(html);
+  if (playerResponseTracks.length) return playerResponseTracks;
+
   const match =
     html.match(/"captionTracks":(\[.*?\]),"audioTracks"/s) ??
     html.match(/"captionTracks":(\[.*?\]),"translationLanguages"/s);
@@ -210,6 +236,25 @@ function extractCaptionTracks(html: string): CaptionTrack[] {
     const tracks = JSON.parse(match[1]) as unknown;
     if (!Array.isArray(tracks)) return [];
     return tracks.filter(isCaptionTrack);
+  } catch {
+    return [];
+  }
+}
+
+function extractCaptionTracksFromPlayerResponse(html: string): CaptionTrack[] {
+  const playerResponse = extractJsonAfterMarker(html, "ytInitialPlayerResponse =");
+  if (!playerResponse) return [];
+
+  try {
+    const payload = JSON.parse(playerResponse) as {
+      captions?: {
+        playerCaptionsTracklistRenderer?: {
+          captionTracks?: unknown;
+        };
+      };
+    };
+    const tracks = payload.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    return Array.isArray(tracks) ? tracks.filter(isCaptionTrack) : [];
   } catch {
     return [];
   }
@@ -232,17 +277,24 @@ function extractQuotedValue(html: string, key: string): string | null {
 }
 
 function chooseCaptionTrack(tracks: CaptionTrack[]): CaptionTrack | null {
+  return orderCaptionTracks(tracks)[0] ?? null;
+}
+
+function orderCaptionTracks(tracks: CaptionTrack[]): CaptionTrack[] {
   return (
-    tracks.find((track) => track.languageCode?.toLowerCase().startsWith("en") && track.kind !== "asr") ??
-    tracks.find((track) => track.languageCode?.toLowerCase().startsWith("en")) ??
-    tracks[0] ??
-    null
+    [
+      ...tracks.filter((track) => track.languageCode?.toLowerCase().startsWith("en") && track.kind !== "asr"),
+      ...tracks.filter((track) => track.languageCode?.toLowerCase().startsWith("en") && track.kind === "asr"),
+      ...tracks.filter((track) => !track.languageCode?.toLowerCase().startsWith("en"))
+    ]
   );
 }
 
 function normalizeTimedTextBody(body: string): string {
   const jsonText = normalizeTimedTextJson(body);
   if (jsonText) return jsonText;
+  const vttText = normalizeWebVtt(body);
+  if (vttText) return vttText;
   return normalizeTimedTextXml(body);
 }
 
@@ -277,6 +329,18 @@ function normalizeTimedTextXml(xml: string): string {
     .map((text) => text.replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeWebVtt(body: string): string {
+  if (!body.includes("WEBVTT")) return "";
+  return body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("WEBVTT") && !line.includes("-->") && !/^\d+$/.test(line))
+    .join(" ")
+    .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -334,6 +398,69 @@ function withTranscriptFormat(baseUrl: string, format: string): string {
   const url = new URL(baseUrl);
   url.searchParams.set("fmt", format);
   return url.toString();
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function extractJsonAfterMarker(html: string, marker: string): string | null {
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) return null;
+
+  const start = html.indexOf("{", markerIndex);
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaping = false;
+  for (let index = start; index < html.length; index += 1) {
+    const char = html[index];
+    if (inString) {
+      if (escaping) {
+        escaping = false;
+      } else if (char === "\\") {
+        escaping = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return html.slice(start, index + 1);
+    }
+  }
+
+  return null;
+}
+
+async function fetchNoStoreWithRetry(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> {
+  let lastResponse: Response | null = null;
+  for (let attempt = 0; attempt < TRANSCRIPT_USER_AGENTS.length; attempt += 1) {
+    const response = await fetchNoStore(input, {
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+        "user-agent": TRANSCRIPT_USER_AGENTS[attempt]
+      }
+    });
+
+    lastResponse = response;
+    if (response.ok) return response;
+    if (![403, 429, 500, 502, 503, 504].includes(response.status)) return response;
+  }
+
+  return lastResponse ?? fetchNoStore(input, init);
 }
 
 function decodeEntities(value: string): string {

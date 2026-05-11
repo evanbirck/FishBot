@@ -324,10 +324,8 @@ export async function repairPlaceholderSummariesAction() {
   const videos = await supabase
     .from("videos")
     .select("*")
-    .eq("classification", "weekly_report")
-    .eq("classification_confidence", "high")
     .order("published_at", { ascending: false })
-    .limit(8);
+    .limit(50);
 
   if (videos.error) throw videos.error;
 
@@ -340,20 +338,35 @@ export async function repairPlaceholderSummariesAction() {
   const summaryModelByVideoId = new Map((summaries.data ?? []).map((summary) => [summary.video_id, summary.model]));
   const repairCandidates = (videos.data ?? []).filter((video) => {
     const summaryModel = summaryModelByVideoId.get(video.id);
-    return video.transcript_status === "placeholder" || summaryModel === "placeholder" || !summaryModel;
+    return (
+      video.transcript_status === "placeholder" ||
+      video.transcript_status === "missing" ||
+      video.transcript_status === "failed" ||
+      summaryModel === "placeholder"
+    );
   });
 
   let repaired = 0;
   let stillPlaceholder = 0;
   let failed = 0;
   let failureMessage = "";
-  for (const video of repairCandidates.slice(0, 5)) {
+  const selectedCandidates = repairCandidates.slice(0, 25);
+  for (const video of selectedCandidates) {
     try {
-      const summary = await createSummaryForVideo(video, env);
-      if (summary.model === "placeholder") {
-        stillPlaceholder += 1;
+      if (video.classification === "weekly_report" && video.classification_confidence === "high") {
+        const summary = await createSummaryForVideo(video, env);
+        if (summary.model === "placeholder") {
+          stillPlaceholder += 1;
+        } else {
+          repaired += 1;
+        }
       } else {
-        repaired += 1;
+        const transcript = await prefetchTranscriptForVideo(video);
+        if (transcript.status === "found") {
+          repaired += 1;
+        } else {
+          stillPlaceholder += 1;
+        }
       }
     } catch (error) {
       failed += 1;
@@ -368,7 +381,7 @@ export async function repairPlaceholderSummariesAction() {
 
   const params = new URLSearchParams({
     repair: "done",
-    checked: String(repairCandidates.slice(0, 5).length),
+    checked: String(selectedCandidates.length),
     repaired: String(repaired),
     placeholder: String(stillPlaceholder),
     failed: String(failed)

@@ -132,7 +132,7 @@ export default async function TestingPage({ searchParams }: TestingPageProps) {
         <Card title="Repair Placeholder Reports" eyebrow="Transcript retry">
           <form action={repairPlaceholderSummariesAction} className="form-grid">
             <p className="muted">
-              Retries up to five high-confidence weekly reports currently marked placeholder and replaces them with real summaries when transcripts are available.
+              Retries up to 25 recent placeholder or missing transcripts. Weekly reports are summarized when transcript repair succeeds; extra uploads only store transcript text until clicked.
             </p>
             <Button type="submit" disabled={disabled} title={disabled ? "Configure server environment first" : "Retry transcript fetching and summarization"}>
               Repair placeholders
