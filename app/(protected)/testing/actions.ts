@@ -6,7 +6,7 @@ import { sendEmail } from "@/lib/email";
 import { formatWeeklyEmailDigest } from "@/lib/email/format-digest";
 import { getServerEnv, inspectEnvReadiness } from "@/lib/env";
 import { runHistoricalBackfill } from "@/lib/backfill";
-import { createSummaryForVideo, getExistingSummary, prefetchTranscriptForVideo, startJobRun, upsertChannel, upsertClassifiedVideo } from "@/lib/pipeline";
+import { createSummaryForVideo, getExistingSummary, prefetchTranscriptForVideo, startJobRun, upsertChannel, upsertClassifiedVideo, usableSummaryOrNull } from "@/lib/pipeline";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { reportSummarySchema } from "@/lib/summarize";
 import type { Tables } from "@/lib/supabase/types";
@@ -164,12 +164,13 @@ export async function emailSelectedWeekAction(formData: FormData) {
 
     if (weeklyVideo) {
       const existing = await getExistingSummary(weeklyVideo.id);
-      if (existing) {
-        summary = existing;
+      const usableExisting = usableSummaryOrNull(existing);
+      if (usableExisting) {
+        summary = usableExisting;
         skippedExisting = 1;
       } else {
-        summary = await createSummaryForVideo(weeklyVideo, env);
-        summarized = 1;
+        summary = usableSummaryOrNull(await createSummaryForVideo(weeklyVideo, env));
+        summarized = summary ? 1 : 0;
       }
     }
 
@@ -193,12 +194,14 @@ export async function emailSelectedWeekAction(formData: FormData) {
       env
     });
 
-    if (!weeklyVideo && extraVideos.length === 0) {
+    if (!weeklySummary && extraVideos.length === 0) {
       await supabase
         .from("job_runs")
         .update({
           status: "succeeded",
-          notes: `Weekly email test found no uploads needing email for ${label}.`,
+          notes: weeklyVideo
+            ? `Weekly email test found a weekly report for ${label}, but transcript extraction still did not return usable text.`
+            : `Weekly email test found no uploads needing email for ${label}.`,
           metadata: { trigger: "week_email_test", startDate, endDate, totalVideos: classified.length },
           finished_at: new Date().toISOString()
         })

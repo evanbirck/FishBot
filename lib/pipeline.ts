@@ -78,8 +78,13 @@ export async function runWeeklyReport(input: PipelineInput): Promise<PipelineRes
         video.included_in_digest_at === null
     );
 
-    const existingSummary = weeklyVideo ? await getExistingSummary(weeklyVideo.id) : null;
-    const summary = weeklyVideo ? existingSummary ?? (await createSummaryForVideo(weeklyVideo, env)) : null;
+    let summary: Tables<"summaries"> | null = null;
+    if (weeklyVideo) {
+      summary = usableSummaryOrNull(await getExistingSummary(weeklyVideo.id));
+      if (!summary) {
+        summary = usableSummaryOrNull(await createSummaryForVideo(weeklyVideo, env));
+      }
+    }
 
     const deliveryCount = await sendWeeklyDigestEmail({
       weeklyVideo: weeklyVideo ?? null,
@@ -92,7 +97,9 @@ export async function runWeeklyReport(input: PipelineInput): Promise<PipelineRes
       ? deliveryCount > 0
         ? "Processed weekly report and sent an email digest."
         : "Processed weekly report, but email delivery is disabled or not configured."
-      : extraVideos.length
+      : weeklyVideo
+        ? "Found weekly report, but no usable transcript was available after retrying extraction."
+        : extraVideos.length
         ? deliveryCount > 0
           ? `No high-confidence weekly report; sent email review links for ${extraVideos.length} upload(s).`
           : `No high-confidence weekly report; found ${extraVideos.length} optional upload(s), but email delivery is disabled or not configured.`
@@ -247,6 +254,11 @@ export async function getExistingSummary(videoId: string) {
   const result = await supabase.from("summaries").select("*").eq("video_id", videoId).maybeSingle();
   if (result.error) throw result.error;
   return result.data;
+}
+
+export function usableSummaryOrNull(summary: Tables<"summaries"> | null): Tables<"summaries"> | null {
+  if (!summary || summary.model === "placeholder") return null;
+  return summary;
 }
 
 export async function prefetchTranscriptForVideo(video: Tables<"videos">) {

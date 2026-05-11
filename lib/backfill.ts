@@ -1,6 +1,6 @@
 import { getServerEnv } from "@/lib/env";
 import { classifyVideoForReport, type VideoClassification } from "@/lib/youtube/classify-video";
-import { createSummaryForVideo, getExistingSummary, startJobRun, upsertChannel, upsertClassifiedVideo } from "@/lib/pipeline";
+import { createSummaryForVideo, getExistingSummary, startJobRun, upsertChannel, upsertClassifiedVideo, usableSummaryOrNull } from "@/lib/pipeline";
 import { fetchUploadsInDateRange, resolveUploadsPlaylist, type YouTubeVideoCandidate } from "@/lib/youtube";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -71,12 +71,14 @@ export async function runHistoricalBackfill(input: BackfillInput): Promise<Backf
         const video = await upsertClassifiedVideo(channel.id, candidate);
         if (candidate.classification.classification !== "weekly_report" || candidate.classification.confidence !== "high") continue;
         const existing = await getExistingSummary(video.id);
-        if (existing) {
+        if (usableSummaryOrNull(existing)) {
           skippedExisting += 1;
           continue;
         }
-        await createSummaryForVideo(video, env);
-        summarized += 1;
+        const summary = await createSummaryForVideo(video, env);
+        if (usableSummaryOrNull(summary)) {
+          summarized += 1;
+        }
       }
     }
 
