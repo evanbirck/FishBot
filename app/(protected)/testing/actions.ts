@@ -6,7 +6,7 @@ import { sendEmail } from "@/lib/email";
 import { formatWeeklyEmailDigest } from "@/lib/email/format-digest";
 import { getServerEnv, inspectEnvReadiness } from "@/lib/env";
 import { runHistoricalBackfill } from "@/lib/backfill";
-import { createSummaryForVideo, getExistingSummary, startJobRun, upsertChannel, upsertClassifiedVideo } from "@/lib/pipeline";
+import { createSummaryForVideo, getExistingSummary, prefetchTranscriptForVideo, startJobRun, upsertChannel, upsertClassifiedVideo } from "@/lib/pipeline";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { reportSummarySchema } from "@/lib/summarize";
 import type { Tables } from "@/lib/supabase/types";
@@ -172,6 +172,8 @@ export async function emailSelectedWeekAction(formData: FormData) {
         summarized = 1;
       }
     }
+
+    await Promise.all(extraVideos.map((video) => prefetchTranscriptForVideo(video)));
 
     const weeklySummary = summary ? reportSummarySchema.parse(summary.summary_json) : null;
     const digest = formatWeeklyEmailDigest({

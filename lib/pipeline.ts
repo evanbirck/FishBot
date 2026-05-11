@@ -242,35 +242,36 @@ export async function getExistingSummary(videoId: string) {
   return result.data;
 }
 
+export async function prefetchTranscriptForVideo(video: Tables<"videos">) {
+  if (video.transcript_status === "found" && video.transcript_text && video.transcript_text.length > 100) {
+    return {
+      status: "found" as const,
+      source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | null) ?? "youtube-transcript",
+      language: video.transcript_language,
+      text: video.transcript_text,
+      hash: video.transcript_hash ?? createHash("sha256").update(video.transcript_text).digest("hex")
+    };
+  }
+
+  const transcript = await fetchTranscript(video.youtube_video_id);
+  await storeTranscriptForVideo(video.id, transcript, "missing");
+  return transcript;
+}
+
 export async function createSummaryForVideo(video: Tables<"videos">, env: ReturnType<typeof getServerEnv>) {
   const supabase = getSupabaseAdmin();
-  const transcript = await fetchTranscript(video.youtube_video_id);
+  const transcript =
+    video.transcript_status === "found" && video.transcript_text && video.transcript_text.length > 100
+      ? {
+          status: "found" as const,
+          source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | null) ?? "youtube-transcript",
+          language: video.transcript_language,
+          text: video.transcript_text,
+          hash: video.transcript_hash ?? createHash("sha256").update(video.transcript_text).digest("hex")
+        }
+      : await fetchTranscript(video.youtube_video_id);
 
-  if (transcript.status === "found") {
-    await supabase
-      .from("videos")
-      .update({
-        transcript_status: "found",
-        transcript_source: transcript.source,
-        transcript_language: transcript.language,
-        transcript_text: transcript.text,
-        transcript_hash: transcript.hash,
-        processed_at: new Date().toISOString()
-      })
-      .eq("id", video.id);
-  } else {
-    await supabase
-      .from("videos")
-      .update({
-        transcript_status: "placeholder",
-        transcript_source: transcript.source,
-        transcript_language: null,
-        transcript_text: transcript.reason,
-        transcript_hash: null,
-        processed_at: new Date().toISOString()
-      })
-      .eq("id", video.id);
-  }
+  await storeTranscriptForVideo(video.id, transcript, transcript.status === "found" ? "found" : "placeholder");
 
   const summaryResult =
     transcript.status === "found"
@@ -356,6 +357,41 @@ export async function createSummaryForVideo(video: Tables<"videos">, env: Return
     .eq("id", video.id);
 
   return result.data;
+}
+
+async function storeTranscriptForVideo(
+  videoId: string,
+  transcript: Awaited<ReturnType<typeof fetchTranscript>>,
+  missingStatus: "found" | "missing" | "placeholder"
+) {
+  const supabase = getSupabaseAdmin();
+
+  if (transcript.status === "found") {
+    await supabase
+      .from("videos")
+      .update({
+        transcript_status: "found",
+        transcript_source: transcript.source,
+        transcript_language: transcript.language,
+        transcript_text: transcript.text,
+        transcript_hash: transcript.hash,
+        processed_at: new Date().toISOString()
+      })
+      .eq("id", videoId);
+    return;
+  }
+
+  await supabase
+    .from("videos")
+    .update({
+      transcript_status: missingStatus,
+      transcript_source: transcript.source,
+      transcript_language: null,
+      transcript_text: transcript.reason,
+      transcript_hash: null,
+      processed_at: new Date().toISOString()
+    })
+    .eq("id", videoId);
 }
 
 export async function createSummaryForVideoWithManualTranscript(video: Tables<"videos">, env: ReturnType<typeof getServerEnv>, transcriptText: string) {
@@ -458,6 +494,8 @@ async function sendWeeklyDigestEmail(input: {
   const supabase = getSupabaseAdmin();
   if (!input.summary && input.extraVideos.length === 0) return 0;
   if (!input.env.ENABLE_EMAIL) return 0;
+
+  await Promise.all(input.extraVideos.map((video) => prefetchTranscriptForVideo(video)));
 
   const weeklySummaryJson = input.summary ? reportSummarySchema.parse(input.summary.summary_json) : null;
   const reportDate = input.weeklyVideo ? new Date(input.weeklyVideo.published_at).toLocaleDateString("en-US") : null;

@@ -31,10 +31,10 @@ export async function GET(request: NextRequest, { params }: SummarizeRouteProps)
   }
 
   try {
-    const existingSummary = await supabase.from("summaries").select("id").eq("video_id", video.data.id).maybeSingle();
+    const existingSummary = await supabase.from("summaries").select("id,model").eq("video_id", video.data.id).maybeSingle();
     if (existingSummary.error) throw existingSummary.error;
 
-    if (!existingSummary.data) {
+    if (!existingSummary.data || existingSummary.data.model === "placeholder") {
       await supabase
         .from("videos")
         .update({ user_approval_status: "user_approved", approved_at: new Date().toISOString() })
