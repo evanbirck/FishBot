@@ -3,14 +3,14 @@ import { createHash } from "node:crypto";
 export type TranscriptResult =
   | {
       status: "found";
-      source: "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
+      source: "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | "managed-transcript-api";
       language: string | null;
       text: string;
       hash: string;
     }
   | {
       status: "missing";
-      source: "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
+      source: "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | "managed-transcript-api";
       reason: string;
     };
 
@@ -28,6 +28,7 @@ type YoutubeTranscriptModule = {
 
 const WATCH_URL = "https://www.youtube.com/watch";
 const INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+const FETCHTRANSCRIPT_API_URL = "https://api.fetchtranscript.com/v1/transcripts";
 const TRANSCRIPT_USER_AGENTS = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -111,6 +112,13 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
     errors.push(error instanceof Error ? error.message : "youtube-transcript could not read captions.");
   }
 
+  try {
+    const managedTranscript = await fetchTranscriptFromManagedProvider(videoId);
+    if (managedTranscript) return managedTranscript;
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : "Managed transcript API could not read captions.");
+  }
+
   return {
     status: "missing",
     source: "youtube-transcript",
@@ -163,6 +171,100 @@ async function fetchTranscriptFromInnerTube(videoId: string): Promise<Transcript
   }
 
   throw new Error(failures.join("; ") || "YouTube InnerTube returned no usable caption tracks.");
+}
+
+async function fetchTranscriptFromManagedProvider(videoId: string): Promise<TranscriptResult | null> {
+  const apiKey = process.env.FETCHTRANSCRIPT_API_KEY || process.env.TRANSCRIPT_API_KEY || "";
+  if (!apiKey) return null;
+
+  const baseUrl = process.env.FETCHTRANSCRIPT_API_URL || FETCHTRANSCRIPT_API_URL;
+  const url = new URL(`${baseUrl.replace(/\/$/, "")}/${encodeURIComponent(videoId)}`);
+  const response = await fetchNoStoreWithRetry(url, {
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${apiKey}`
+    }
+  });
+  const payload = (await response.json().catch(() => null)) as unknown;
+
+  if (!response.ok) {
+    throw new Error(extractManagedProviderError(payload) ?? `Managed transcript API returned ${response.status}.`);
+  }
+
+  const text = extractManagedTranscriptText(payload);
+  if (!text) {
+    throw new Error("Managed transcript API returned no readable text.");
+  }
+
+  return {
+    status: "found",
+    source: "managed-transcript-api",
+    language: extractManagedTranscriptLanguage(payload),
+    text,
+    hash: createHash("sha256").update(text).digest("hex")
+  };
+}
+
+function extractManagedTranscriptText(payload: unknown): string {
+  const direct = firstStringAtPath(payload, [
+    ["full_text"],
+    ["text"],
+    ["transcript"],
+    ["data", "full_text"],
+    ["data", "text"],
+    ["data", "transcript"],
+    ["data", "transcripts"]
+  ]);
+  if (direct) return normalizeManagedText(direct);
+
+  const candidateArrays = arraysAtPath(payload, [
+    ["transcript"],
+    ["transcripts"],
+    ["segments"],
+    ["data", "transcript"],
+    ["data", "transcripts"],
+    ["data", "segments"]
+  ]);
+  for (const candidateArray of candidateArrays) {
+    const text = candidateArray
+      .flatMap((item) => {
+        if (typeof item === "string") return [item];
+        if (typeof item !== "object" || item === null) return [];
+        const object = item as Record<string, unknown>;
+        return [object.text, object.caption, object.utterance].filter((value): value is string => typeof value === "string");
+      })
+      .map(normalizeManagedText)
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text) return text;
+  }
+
+  return "";
+}
+
+function extractManagedTranscriptLanguage(payload: unknown): string | null {
+  return (
+    firstStringAtPath(payload, [
+      ["language"],
+      ["language_code"],
+      ["data", "language"],
+      ["data", "language_code"],
+      ["metadata", "language"],
+      ["data", "metadata", "language"]
+    ]) || null
+  );
+}
+
+function extractManagedProviderError(payload: unknown): string | null {
+  return firstStringAtPath(payload, [
+    ["error"],
+    ["message"],
+    ["detail"],
+    ["data", "error"],
+    ["data", "message"]
+  ]);
 }
 
 async function fetchTranscriptFromTimedText(videoId: string): Promise<TranscriptResult> {
@@ -367,6 +469,39 @@ function formatPlayabilityReason(payload: unknown): string {
   const reason = (playability as { reason?: unknown }).reason;
   const parts = [typeof status === "string" ? status : "", typeof reason === "string" ? reason : ""].filter(Boolean);
   return parts.length ? ` (${parts.join(": ")})` : "";
+}
+
+function firstStringAtPath(payload: unknown, paths: string[][]): string {
+  for (const path of paths) {
+    let current = payload;
+    for (const key of path) {
+      if (typeof current !== "object" || current === null) {
+        current = null;
+        break;
+      }
+      current = (current as Record<string, unknown>)[key];
+    }
+    if (typeof current === "string" && current.trim()) return current.trim();
+  }
+
+  return "";
+}
+
+function arraysAtPath(payload: unknown, paths: string[][]): unknown[][] {
+  return paths.flatMap((path) => {
+    let current = payload;
+    for (const key of path) {
+      if (typeof current !== "object" || current === null) return [];
+      current = (current as Record<string, unknown>)[key];
+    }
+    return Array.isArray(current) ? [current] : [];
+  });
+}
+
+function normalizeManagedText(value: string): string {
+  return decodeEntities(value)
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractTranscriptPanelParams(html: string): string | null {
