@@ -68,6 +68,8 @@ Server-only:
 - `CRON_SECRET`
 - `ENABLE_EMAIL`
 - `ENABLE_STT_FALLBACK`
+- `FETCHTRANSCRIPT_API_KEY`
+- `FETCHTRANSCRIPT_API_URL`
 - `APP_BASE_URL`
 - `DASHBOARD_PASSWORD`
 
@@ -130,10 +132,11 @@ Sign in at `/login` with `DASHBOARD_PASSWORD`. Use the Testing page for controll
 6. Only high-confidence `weekly_report` videos are summarized automatically.
 7. `possible_report` and `extra_upload` videos are listed in the weekly email digest with one-click summarize links.
 8. Ignored uploads are stored and excluded from the digest unless manually handled later.
-9. Public transcript extraction runs when captions are available.
-10. Missing transcripts create a placeholder summary instead of failing the job.
-11. OpenAI returns detailed structured JSON validated by Zod.
-12. One combined weekly email digest is rendered and sent to `EMAIL_TO`.
+9. Public transcript extraction runs through YouTube caption endpoints first.
+10. If Vercel is blocked by YouTube bot checks, the optional managed transcript provider runs when `FETCHTRANSCRIPT_API_KEY` is configured.
+11. Missing transcripts create a placeholder summary instead of failing the job.
+12. OpenAI returns detailed structured JSON validated by Zod.
+13. One combined weekly email digest is rendered and sent to `EMAIL_TO`.
 
 ## Deploying to Vercel
 
@@ -164,7 +167,7 @@ Tests cover scoring, classification, email digest formatting, signed action link
 
 ## Known Limitations
 
-Public YouTube transcripts may not be available for every video. In that case, the app creates a placeholder report with the video title, link, and clear note that no transcript was available. Optional speech-to-text fallback is represented by `ENABLE_STT_FALLBACK` but intentionally disabled by default.
+Public YouTube transcripts may not be available from every hosting environment. Vercel serverless IPs can receive YouTube bot-check responses even when the same video has captions in a browser. Configure `FETCHTRANSCRIPT_API_KEY` to use a managed transcript fallback for those cases. If no transcript source returns usable text, the app creates a placeholder report with the video title, link, and clear note that no transcript was available.
 
 ## Roadmap
 
