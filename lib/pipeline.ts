@@ -265,7 +265,7 @@ export async function prefetchTranscriptForVideo(video: Tables<"videos">) {
   if (video.transcript_status === "found" && video.transcript_text && video.transcript_text.length > 100) {
     return {
       status: "found" as const,
-      source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | null) ?? "youtube-transcript",
+      source: (video.transcript_source as "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | null) ?? "youtube-transcript",
       language: video.transcript_language,
       text: video.transcript_text,
       hash: video.transcript_hash ?? createHash("sha256").update(video.transcript_text).digest("hex")
@@ -287,7 +287,7 @@ export async function createSummaryForVideo(
     video.transcript_status === "found" && video.transcript_text && video.transcript_text.length > 100
       ? {
           status: "found" as const,
-          source: (video.transcript_source as "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | null) ?? "youtube-transcript",
+          source: (video.transcript_source as "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel" | null) ?? "youtube-transcript",
           language: video.transcript_language,
           text: video.transcript_text,
           hash: video.transcript_hash ?? createHash("sha256").update(video.transcript_text).digest("hex")

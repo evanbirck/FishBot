@@ -2,6 +2,56 @@ import { describe, expect, it, vi } from "vitest";
 import { fetchTranscript } from "@/lib/transcript";
 
 describe("fetchTranscript", () => {
+  it("uses InnerTube caption tracks before watch-page scraping", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const value = String(url);
+        calls.push(value);
+        if (value.includes("youtubei/v1/player")) {
+          return Response.json({
+            playabilityStatus: { status: "OK" },
+            captions: {
+              playerCaptionsTracklistRenderer: {
+                captionTracks: [
+                  {
+                    baseUrl: "https://www.youtube.com/api/timedtext?v=innertube-video",
+                    languageCode: "en",
+                    kind: "asr"
+                  }
+                ]
+              }
+            }
+          });
+        }
+
+        if (value.includes("timedtext")) {
+          return Response.json({
+            events: [
+              {
+                segs: [{ utf8: "InnerTube caption text" }]
+              }
+            ]
+          });
+        }
+
+        return new Response("", { status: 404 });
+      })
+    );
+
+    const result = await fetchTranscript("innertube-video");
+
+    expect(result.status).toBe("found");
+    expect(calls.some((call) => call.includes("watch?v=innertube-video"))).toBe(false);
+    if (result.status === "found") {
+      expect(result.source).toBe("youtube-innertube");
+      expect(result.text).toBe("InnerTube caption text");
+    }
+
+    vi.unstubAllGlobals();
+  });
+
   it("falls back to YouTube timedtext caption tracks", async () => {
     vi.stubGlobal(
       "fetch",

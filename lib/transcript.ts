@@ -3,14 +3,14 @@ import { createHash } from "node:crypto";
 export type TranscriptResult =
   | {
       status: "found";
-      source: "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
+      source: "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
       language: string | null;
       text: string;
       hash: string;
     }
   | {
       status: "missing";
-      source: "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
+      source: "youtube-innertube" | "youtube-transcript" | "youtube-timedtext" | "youtube-transcript-panel";
       reason: string;
     };
 
@@ -27,15 +27,66 @@ type YoutubeTranscriptModule = {
 };
 
 const WATCH_URL = "https://www.youtube.com/watch";
+const INNERTUBE_PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const TRANSCRIPT_USER_AGENTS = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   "Mozilla/5.0 FishBot transcript fetcher"
 ];
 const TIMEDTEXT_FORMATS = ["json3", "srv3", "ttml", "vtt", ""];
+const INNERTUBE_CLIENTS = [
+  {
+    name: "ANDROID",
+    version: "20.10.38",
+    userAgent: "com.google.android.youtube/20.10.38 (Linux; U; Android 14)",
+    context: {
+      clientName: "ANDROID",
+      clientVersion: "20.10.38",
+      hl: "en",
+      gl: "US",
+      androidSdkVersion: 35,
+      osName: "Android",
+      osVersion: "14"
+    }
+  },
+  {
+    name: "IOS",
+    version: "20.10.4",
+    userAgent: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 17_5 like Mac OS X; en_US)",
+    context: {
+      clientName: "IOS",
+      clientVersion: "20.10.4",
+      hl: "en",
+      gl: "US",
+      deviceMake: "Apple",
+      deviceModel: "iPhone16,2",
+      osName: "iOS",
+      osVersion: "17.5"
+    }
+  }
+] as const;
 
 export async function fetchTranscript(videoId: string): Promise<TranscriptResult> {
   const errors: string[] = [];
+
+  try {
+    return await fetchTranscriptFromInnerTube(videoId);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : "YouTube InnerTube captions were unavailable.");
+  }
+
+  try {
+    return await fetchTranscriptFromTimedText(videoId);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : "YouTube timedtext captions were unavailable.");
+  }
+
+  try {
+    return await fetchTranscriptFromTranscriptPanel(videoId);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : "YouTube transcript panel captions were unavailable.");
+  }
+
   try {
     const transcriptModule = (await import("youtube-transcript")) as unknown as YoutubeTranscriptModule;
     const segments = await transcriptModule.YoutubeTranscript.fetchTranscript(videoId, { fetch: fetchNoStore });
@@ -60,23 +111,58 @@ export async function fetchTranscript(videoId: string): Promise<TranscriptResult
     errors.push(error instanceof Error ? error.message : "youtube-transcript could not read captions.");
   }
 
-  try {
-    return await fetchTranscriptFromTimedText(videoId);
-  } catch (error) {
-    errors.push(error instanceof Error ? error.message : "YouTube timedtext captions were unavailable.");
-  }
-
-  try {
-    return await fetchTranscriptFromTranscriptPanel(videoId);
-  } catch (error) {
-    errors.push(error instanceof Error ? error.message : "YouTube transcript panel captions were unavailable.");
-  }
-
   return {
     status: "missing",
-    source: "youtube-transcript-panel",
+    source: "youtube-transcript",
     reason: errors.join(" ")
   };
+}
+
+async function fetchTranscriptFromInnerTube(videoId: string): Promise<TranscriptResult> {
+  const failures: string[] = [];
+
+  for (const client of INNERTUBE_CLIENTS) {
+    const response = await fetchNoStoreWithRetry(INNERTUBE_PLAYER_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": client.userAgent,
+        "x-youtube-client-name": client.name === "ANDROID" ? "3" : "5",
+        "x-youtube-client-version": client.version
+      },
+      body: JSON.stringify({
+        context: {
+          client: client.context
+        },
+        videoId,
+        contentCheckOk: true,
+        racyCheckOk: true
+      })
+    });
+
+    const payload = (await response.json().catch(() => null)) as unknown;
+    if (!response.ok) {
+      failures.push(`${client.name} player returned ${response.status}`);
+      continue;
+    }
+
+    const tracks = extractCaptionTracksFromInnerTubePayload(payload);
+    if (!tracks.length) {
+      failures.push(`${client.name} player returned no captions${formatPlayabilityReason(payload)}`);
+      continue;
+    }
+
+    const transcript = await fetchTimedTextFromTracks(tracks, videoId);
+    return {
+      status: "found",
+      source: "youtube-innertube",
+      language: transcript.language,
+      text: transcript.text,
+      hash: createHash("sha256").update(transcript.text).digest("hex")
+    };
+  }
+
+  throw new Error(failures.join("; ") || "YouTube InnerTube returned no usable caption tracks.");
 }
 
 async function fetchTranscriptFromTimedText(videoId: string): Promise<TranscriptResult> {
@@ -258,6 +344,29 @@ function extractCaptionTracksFromPlayerResponse(html: string): CaptionTrack[] {
   } catch {
     return [];
   }
+}
+
+function extractCaptionTracksFromInnerTubePayload(payload: unknown): CaptionTrack[] {
+  if (typeof payload !== "object" || payload === null) return [];
+  const tracks = (payload as {
+    captions?: {
+      playerCaptionsTracklistRenderer?: {
+        captionTracks?: unknown;
+      };
+    };
+  }).captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+  return Array.isArray(tracks) ? tracks.filter(isCaptionTrack) : [];
+}
+
+function formatPlayabilityReason(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) return "";
+  const playability = (payload as { playabilityStatus?: unknown }).playabilityStatus;
+  if (typeof playability !== "object" || playability === null) return "";
+  const status = (playability as { status?: unknown }).status;
+  const reason = (playability as { reason?: unknown }).reason;
+  const parts = [typeof status === "string" ? status : "", typeof reason === "string" ? reason : ""].filter(Boolean);
+  return parts.length ? ` (${parts.join(": ")})` : "";
 }
 
 function extractTranscriptPanelParams(html: string): string | null {
